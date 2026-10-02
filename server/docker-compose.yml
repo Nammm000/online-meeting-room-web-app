@@ -101,8 +101,10 @@ services:
     container_name: myrooms-coturn
     restart: always
     command:
+      # coturn 4.18 removed --no-tls/--no-dtls/--log-device=stdout from its flag
+      # set (TLS stays off unless certs are configured; stdout logging is the
+      # default) — passing any of them makes turnserver print usage and exit 255.
       - -n
-      - --log-device=stdout
       - --lt-cred-mech
       - --fingerprint
       - --realm=myrooms.local
@@ -111,14 +113,14 @@ services:
       - --max-port=61100
       - --external-ip=${TURN_EXTERNAL_IP:-127.0.0.1}
       - --no-cli
-      - --no-tls
-      - --no-dtls
     ports:
       - "3478:3478/udp"
       - "3478:3478/tcp"
       - "61000-61100:61000-61100/udp"
     healthcheck:
-      test: ["CMD-SHELL", "nc -z 127.0.0.1 3478 || exit 1"]
+      # Alpine coturn image has no nc/curl — probe the listening socket via
+      # /proc instead (3478 = hex 0D96 in the local_address column).
+      test: ["CMD-SHELL", "grep -q ':0D96' /proc/net/udp || grep -q ':0D96' /proc/net/tcp || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 5
