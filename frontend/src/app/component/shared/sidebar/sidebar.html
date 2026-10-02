@@ -1,0 +1,33 @@
+<!-- Mobile hamburger row (CSS shows it only at ≤640px): opens the drawer nav -->
+<button type="button" class="sidebar__hamburger" (click)="toggleDrawer()" [attr.aria-expanded]="drawerOpen()">
+  <i class="icon-18 menu" aria-hidden="true"></i>
+  <span>{{ langService.t('common.navigation') }}</span>
+</button>
+<nav
+  class="sidebar"
+  [class.sidebar--collapsed]="collapsed()"
+  [class.sidebar--open]="drawerOpen()"
+  [attr.aria-label]="langService.t('common.navigation')"
+>
+  @for (item of items(); track item.path) {
+    <a
+      class="sidebar__link"
+      [routerLink]="['/' + item.path]"
+      routerLinkActive="sidebar__link--active"
+      [routerLinkActiveOptions]="{ exact: true }"
+      [title]="langService.t(item.labelKey)"
+      (click)="closeDrawer()"
+    >
+      <i class="icon-18 {{ item.icon }}" aria-hidden="true"></i>
+      <span class="sidebar__label">{{ langService.t(item.labelKey) }}</span>
+    </a>
+  }
+  <button type="button" class="sidebar__toggle" (click)="toggleCollapsed()"
+          [attr.aria-expanded]="!collapsed()"
+          [attr.aria-label]="collapsed() ? 'Expand navigation' : 'Collapse navigation'">
+    <i class="icon-18 {{ collapsed() ? 'chevron-right' : 'chevron-left' }}" aria-hidden="true"></i>
+  </button>
+</nav>
+@if (drawerOpen()) {
+  <div class="sidebar__backdrop" (click)="closeDrawer()"></div>
+}

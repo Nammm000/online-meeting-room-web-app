@@ -1,0 +1,187 @@
+// Settings page card. Shared page chrome (.page, banners, badges) is global
+// in src/scss/page.scss and src/scss/table.scss.
+
+.settings-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  padding: 1.75rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.settings-card__identity {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.settings-card__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 0; // let the email truncate instead of overflowing
+}
+
+.settings-name {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.settings-email {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+// Push the status badge to the right edge of the identity row.
+.settings-card__identity .badge {
+  margin-left: auto;
+}
+
+.settings-avatar {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+// Avatar + edit overlay share a positioning context.
+.settings-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+// Edit affordance overlaid on the avatar's bottom-right corner.
+.settings-avatar-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--brand);
+  border: 2px solid var(--surface-1);
+  border-radius: 50%;
+  color: var(--text-on-brand);
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  .icon-18 {
+    width: 12px;
+    height: 12px;
+  }
+
+  &:hover:not(:disabled) {
+    background: var(--brand-hover);
+  }
+
+  &:focus-visible {
+    box-shadow: var(--focus-ring);
+    outline: none;
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+// Visually hidden but still focusable/active for the file picker.
+.settings-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.settings-avatar--initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand);
+  color: var(--text-on-brand);
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.settings-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem 2rem;
+  margin: 0;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+
+  dt {
+    color: var(--text-muted);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+
+  dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 1rem;
+    overflow-wrap: anywhere;
+  }
+}
+
+.settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.settings-button {
+  padding: 0.5rem 1rem;
+  background: var(--brand);
+  border: 1px solid var(--brand);
+  border-radius: 0.375rem;
+  color: var(--text-on-brand);
+  font-size: 0.9375rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--brand-hover);
+    border-color: var(--brand-hover);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.settings-button--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: var(--text-on-brand);
+
+  &:hover:not(:disabled) {
+    background: var(--danger-hover);
+    border-color: var(--danger-hover);
+  }
+}

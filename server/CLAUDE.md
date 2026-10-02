@@ -1,0 +1,21 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+Spring Boot 3.2.3 / Java 17 backend, currently a **temporary project for registration and login** with JWT access + refresh tokens (package `tech.getarrays.meetingroom`), plus the **meeting-room domain at the schema layer** (`models/meeting/` entities + repos; no services/controllers yet — design in `docs/meeting-database-design.md`). Forked from the sibling `assetManager` project with the entire asset domain removed — see `project-overview.md` for what's left over and for known code issues.
+
+Detailed guidance is split into topic-specific rule files in `.claude/rules/`:
+
+- `project-overview.md` — project identity, assetManager fork provenance, legacy remnants, known code issues
+- `commands.md` — Docker/Maven commands, runtime dependencies, and the JDK 17 requirement
+- `architecture.md` — layered structure and cross-cutting components
+- `api-surface.md` — endpoint map per controller and REST conventions
+- `security-auth.md` — stateless JWT auth, filter chain, rate limiting, roles
+- `domain-model.md` — User/AccountLevel/RefreshToken, image + PDF file models, role enum
+- `exception-handling.md` — AllExceptionHandler status mapping and ErrorResponseDTO
+- `database-schema.md` — Postgres setup and `ddl-auto=update` behavior
+- `code-generation.md` — Lombok/MapStruct wiring and conventions
+- `signup-defaults.md` — signup defaults (BASIC AccountLevel, `ACC-<uuid>`, ROLE_ADMIN)
+- `email-credentials.md` — Gmail SMTP credentials location
+
+Also in `docs/`: `meeting-database-design.md` (meeting domain schema — ERD, table specs, state machines, consistency rules) and `websocket.md` (notification push). `redis.md`/`redisson-bloom-filter.md` describe the sibling assetManager project, not this one.

@@ -1,0 +1,153 @@
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">{{ langService.t('menu.pdfFiles') }}</h1>
+    <p class="page-subtitle">{{ langService.t('pdfFiles.subtitle') }}</p>
+  </div>
+
+  <div
+    class="dropzone"
+    role="button"
+    tabindex="0"
+    [class.dropzone--over]="dragOver()"
+    [attr.aria-label]="langService.t('pdfFiles.dropzoneTitle')"
+    (click)="pdfInput.click()"
+    (keydown.enter)="pdfInput.click()"
+    (keydown.space)="$event.preventDefault(); pdfInput.click()"
+    (dragover)="onDragOver($event)"
+    (dragleave)="onDragLeave($event)"
+    (drop)="onDrop($event)"
+  >
+    <i class="icon-18 file-text dropzone__icon" aria-hidden="true"></i>
+    <p class="dropzone__title">{{ langService.t('pdfFiles.dropzoneTitle') }}</p>
+    <p class="dropzone__hint">{{ langService.t('pdfFiles.dropzoneHint') }}</p>
+  </div>
+  <input
+    #pdfInput
+    class="pdf-file-input"
+    type="file"
+    multiple
+    accept="application/pdf,.pdf"
+    (change)="onFileSelected($event)"
+  />
+
+  @if (rejections().length) {
+  <div class="selection-list selection-list--rejected">
+    <p class="selection-list__title">
+      {{ langService.t('pdfFiles.rejectedTitle') }}
+    </p>
+    <ul>
+      @for (rejection of rejections(); track $index) {
+      <li>
+        <span class="selection-list__name">{{ rejection.name }}</span>
+        <span class="selection-list__reason">{{ rejection.reason }}</span>
+      </li>
+      }
+    </ul>
+  </div>
+  }
+
+  @if (accepted().length) {
+  <div class="selection-list">
+    <div class="selection-list__header">
+      <p class="selection-list__title">
+        {{ langService.t('pdfFiles.pendingTitle') }}
+      </p>
+      <button
+        type="button"
+        class="submit-button"
+        [disabled]="uploading()"
+        (click)="upload()"
+      >
+        {{ langService.t('pdfFiles.upload') }} ({{ accepted().length }})
+      </button>
+    </div>
+    <ul>
+      @for (file of accepted(); track $index) {
+      <li>
+        <i class="icon-18 file-text" aria-hidden="true"></i>
+        <span class="selection-list__name">{{ file.name }}</span>
+        <span class="selection-list__size">{{ formatFileSize(file.size) }}</span>
+        <button
+          type="button"
+          class="table-button"
+          [title]="langService.t('pdfFiles.remove')"
+          [attr.aria-label]="langService.t('pdfFiles.remove')"
+          (click)="removePending($index)"
+        >
+          <i class="icon-18 trash"></i>
+        </button>
+      </li>
+      }
+    </ul>
+  </div>
+  }
+
+  @if (uploadError()) {
+  <p class="error-banner">{{ uploadError() }}</p>
+  } @if (uploadSuccess()) {
+  <p class="success-banner">{{ uploadSuccess() }}</p>
+  }
+
+  @if (loading()) {
+  <p class="loading-text">Loading…</p>
+  } @else if (errorMessage()) {
+  <p class="error-banner">{{ errorMessage() }}</p>
+  } @else if (!rows().length) {
+  <p class="empty-state">{{ langService.t('pdfFiles.empty') }}</p>
+  } @else {
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>{{ langService.t('pdfFiles.name') }}</th>
+          <th>{{ langService.t('pdfFiles.size') }}</th>
+          <th>{{ langService.t('common.created') }}</th>
+          <th>{{ langService.t('common.actions') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.id) {
+        <tr>
+          <td>{{ $index + 1 }}</td>
+          <td>{{ row.fileName }}</td>
+          <td>{{ formatFileSize(row.fileSize) }}</td>
+          <td>{{ customFormattedDate(row.createdAt) }}</td>
+          <td>
+            <div class="table-actions">
+              <button
+                type="button"
+                class="table-button"
+                [title]="langService.t('pdfFiles.download')"
+                [attr.aria-label]="langService.t('pdfFiles.download')"
+                [disabled]="downloadingId() === row.id"
+                (click)="download(row)"
+              >
+                <i class="icon-18 download"></i>
+              </button>
+              <button
+                type="button"
+                class="table-button table-button--danger"
+                [title]="langService.t('pdfFiles.deleteConfirm')"
+                [attr.aria-label]="langService.t('pdfFiles.deleteConfirm')"
+                (click)="confirmDelete(row)"
+              >
+                <i class="icon-18 trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <app-pagination
+    [page]="page()"
+    [totalPages]="totalPages()"
+    [pageSize]="pageSize()"
+    (pageChange)="load($event)"
+    (pageSizeChange)="onPageSizeChange($event)"
+  />
+  }
+</div>

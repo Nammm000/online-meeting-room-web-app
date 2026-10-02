@@ -1,0 +1,169 @@
+<header class="header">
+  <div class="header__logo">
+    <img
+      src="../../../../assets/img/thumbs-up-icon.svg"
+      alt="Logo"
+      class="header__logo-img"
+    />
+  </div>
+
+  <div class="header__right">
+    <!-- Theme toggle: one button for guests and authenticated users, all widths -->
+    <button
+      class="header__theme-toggle"
+      type="button"
+      (click)="toggleTheme()"
+      [attr.aria-label]="themeService.isDark() ? 'Switch to light theme' : 'Switch to dark theme'"
+    >
+      <i
+        class="icon-18 {{ themeService.isDark() ? 'sun' : 'moon' }}"
+        aria-hidden="true"
+      ></i>
+    </button>
+
+    @if (authService.isAuthenticated()) {
+    <!-- Authenticated: bell + avatar replace the auth buttons and the hamburger at all widths -->
+    <div class="header__bell-menu">
+      <button
+        class="header__bell-btn"
+        type="button"
+        (click)="toggleNotifications()"
+        aria-haspopup="menu"
+        [attr.aria-expanded]="isNotificationDropdownOpen()"
+        [attr.aria-label]="langService.t('notifications.title')"
+      >
+        <i class="icon-18 bell" aria-hidden="true"></i>
+        @if (notificationService.unreadCount() > 0) {
+        <span class="header__bell-badge">{{ unreadLabel() }}</span>
+        }
+      </button>
+
+      @if (isNotificationDropdownOpen()) {
+      <nav
+        class="header__bell-dropdown"
+        role="menu"
+        [attr.aria-label]="langService.t('notifications.title')"
+      >
+        <div class="header__bell-head">
+          <span class="header__bell-title">{{
+            langService.t('notifications.title')
+          }}</span>
+          <button
+            class="header__bell-clear"
+            type="button"
+            (click)="clearNotifications()"
+          >
+            {{ langService.t('notifications.clear') }}
+          </button>
+        </div>
+        <div class="header__bell-list">
+          @for (n of notificationService.notifications(); track $index) {
+          <div class="header__bell-item">
+            <p class="header__bell-item-message">{{ n.message }}</p>
+            <time class="header__bell-item-time">{{
+              n.timestamp | date: 'mediumTime'
+            }}</time>
+          </div>
+          } @empty {
+          <p class="header__bell-empty">
+            {{ langService.t('notifications.empty') }}
+          </p>
+          }
+        </div>
+      </nav>
+      }
+    </div>
+
+    <div class="header__avatar-menu">
+      <button
+        class="header__avatar-btn"
+        type="button"
+        (click)="toggleDropdown()"
+        aria-haspopup="menu"
+        [attr.aria-expanded]="isDropdownOpen()"
+        aria-label="User menu"
+      >
+        @if (avatarSrc(); as src) {
+        <img
+          class="header__avatar-img"
+          [src]="src"
+          alt="Profile avatar"
+          (error)="onAvatarError()"
+        />
+        } @else {
+        <span class="header__avatar-initials">{{ initials() }}</span>
+        }
+      </button>
+
+      @if (isDropdownOpen()) {
+      <nav class="header__dropdown" role="menu" aria-label="User menu">
+        <a
+          class="header__dropdown-item header__dropdown-item--link"
+          role="menuitem"
+          routerLink="/user-setting"
+          routerLinkActive="header__dropdown-item--active"
+          (click)="closeDropdown()"
+          >{{ langService.t('common.settings') }}</a
+        >
+        <!-- Language options never close the dropdown: the relabel is the feedback. -->
+        <div class="header__dropdown-section">
+          <!-- <label class="header__dropdown-label" for="header-language">{{ langService.t('common.language') }}</label> -->
+          <select
+            id="header-language"
+            class="header__dropdown-select"
+            (change)="onLanguageChange($event)"
+          >
+            <option value="vi" [selected]="langService.isVietnamese()">
+              Tiếng Việt
+            </option>
+            <option value="en" [selected]="!langService.isVietnamese()">
+              English
+            </option>
+          </select>
+        </div>
+        <button
+          class="header__dropdown-item"
+          type="button"
+          role="menuitem"
+          (click)="openChangePassword()"
+        >
+          {{ langService.t('common.changePassword') }}
+        </button>
+        <button
+          class="header__dropdown-item header__dropdown-item--danger"
+          type="button"
+          role="menuitem"
+          (click)="logout()"
+        >
+          {{ langService.t('common.logout') }}
+        </button>
+      </nav>
+      }
+    </div>
+    } @else {
+    <!-- Desktop: Auth buttons -->
+    <nav class="header__nav desktop-only">
+      <button class="btn btn--login" (click)="openLogin()">Login</button>
+      <button class="btn btn--signup" (click)="openSignup()">Sign Up</button>
+    </nav>
+
+    <!-- Mobile: Hamburger menu -->
+    <button
+      class="header__hamburger mobile-only"
+      (click)="toggleMobileMenu()"
+      [class.active]="isMobileMenuOpen()"
+    >
+      <span></span>
+      <span></span>
+      <span></span>
+    </button>
+
+    <!-- Mobile menu dropdown -->
+    @if (isMobileMenuOpen()) {
+    <nav class="header__mobile-menu mobile-only">
+      <button class="btn btn--login" (click)="openLogin()">Login</button>
+      <button class="btn btn--signup" (click)="openSignup()">Sign Up</button>
+    </nav>
+    } }
+  </div>
+</header>

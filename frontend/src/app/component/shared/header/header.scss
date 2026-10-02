@@ -1,0 +1,236 @@
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  position: sticky;
+  top: 0;
+  background: var(--surface-1);
+  box-shadow: var(--shadow-md);
+  z-index: 100;
+}
+
+.header__logo {
+  display: flex;
+  align-items: center;
+}
+
+.header__logo-img {
+  height: 40px;
+  width: auto;
+}
+
+.header__nav {
+  display: flex;
+  gap: 1rem;
+}
+
+.btn {
+  padding: 0.5rem 1.5rem;
+  border-radius: 4px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: none;
+  font-size: 1rem;
+
+  &--login {
+    background: transparent;
+    color: var(--text-primary);
+
+    &:hover {
+      background: var(--surface-hover);
+    }
+  }
+
+  &--signup {
+    background: var(--electric-violet);
+    color: var(--text-on-brand);
+
+    &:hover {
+      opacity: 0.9;
+    }
+  }
+}
+
+// Hamburger menu
+.header__hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
+
+  span {
+    width: 24px;
+    height: 2px;
+    background: var(--text-primary);
+    transition: all 0.3s ease;
+  }
+
+  &.active span:nth-child(1) {
+    transform: rotate(45deg) translate(5px, 5px);
+  }
+
+  &.active span:nth-child(2) {
+    opacity: 0;
+  }
+
+  &.active span:nth-child(3) {
+    transform: rotate(-45deg) translate(7px, -6px);
+  }
+}
+
+.header__mobile-menu {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--surface-1);
+  flex-direction: column;
+  padding: 1rem;
+  gap: 0.5rem;
+  box-shadow: var(--shadow-md);
+
+  .btn {
+    width: 100%;
+  }
+}
+
+// Avatar + user dropdown (authenticated state)
+.header__avatar-menu {
+  position: relative;
+}
+
+.header__avatar-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  background: var(--electric-violet);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:focus-visible {
+    outline: 2px solid var(--electric-violet);
+    outline-offset: 2px;
+  }
+}
+
+.header__avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.header__avatar-initials {
+  color: var(--text-on-brand);
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.header__dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 180px;
+  background: var(--surface-1);
+  border-radius: 0.5rem;
+  box-shadow: var(--shadow-md);
+  padding: 0.5rem 0;
+  display: flex;
+  flex-direction: column;
+  z-index: 110;
+}
+
+.header__dropdown-item {
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  cursor: pointer;
+  width: 100%;
+  color: var(--text-primary);
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+
+  &--danger {
+    color: var(--danger-text);
+  }
+
+  // The Settings entry is an anchor (routerLink); links need their own reset.
+  &.header__dropdown-item--link {
+    display: block;
+    text-decoration: none;
+    box-sizing: border-box;
+  }
+
+  &--active {
+    background: var(--surface-hover);
+    font-weight: 600;
+  }
+}
+
+// Language section inside the dropdown — the label + native select mirror the
+// users table's .role-select styling (global in src/scss/table.scss).
+.header__dropdown-section {
+  padding: 0.5rem 0;
+}
+
+.header__dropdown-label {
+  display: block;
+  padding: 0.4rem 1rem 0.15rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.header__dropdown-select {
+  display: block;
+  width: calc(100% - 2rem);
+  margin: 0.15rem 1rem 0.5rem;
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  background: var(--surface-1);
+}
+
+// Responsive breakpoint
+.desktop-only {
+  @media (max-width: 404px) {
+    display: none !important;
+  }
+}
+
+.mobile-only {
+  display: none;
+
+  @media (max-width: 404px) {
+    display: flex;
+  }
+}
+
+@media (max-width: 404px) {
+  .header__hamburger {
+    display: flex;
+  }
+
+  .header__mobile-menu {
+    display: flex;
+  }
+}

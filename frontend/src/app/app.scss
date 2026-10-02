@@ -1,0 +1,45 @@
+// App shell: sticky header on top, sidebar + routed content below.
+.app-layout {
+  display: flex;
+  align-items: flex-start;
+  min-height: calc(100dvh - 72px); // header = 1rem padding x2 + 40px logo
+}
+
+.app-layout__sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 72px;
+  height: calc(100dvh - 72px);
+  overflow-y: auto;
+  background: var(--surface-1);
+  border-right: 1px solid var(--border);
+  transition: width 0.15s ease;
+}
+
+// Icons-only rail when the sidebar's collapse toggle is active (desktop only —
+// mobile keeps the full-width strip; specificity must not beat that override).
+@media (min-width: 641px) {
+  .app-layout__sidebar:has(.sidebar--collapsed) {
+    width: 4.25rem;
+  }
+}
+
+.app-layout__content {
+  flex: 1;
+  min-width: 0; // let wide tables scroll inside .table-wrapper instead of the page
+}
+
+@media (max-width: 640px) {
+  .app-layout {
+    flex-direction: column;
+  }
+
+  .app-layout__sidebar {
+    position: static;
+    width: 100%;
+    height: auto;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}

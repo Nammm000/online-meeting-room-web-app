@@ -1,0 +1,178 @@
+// Shared page-level chrome for the asset pages: header, toolbar, status
+// banners, empty states, and the dashboard quick links. Global via styles.scss.
+
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.page-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.page-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.page-subtitle {
+  color: var(--text-muted);
+  font-size: 0.9375rem;
+  margin: 0;
+}
+
+.page-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+// Bulk-delete toolbar action — pinned left while the "Add X" button stays right
+.bulk-delete-button {
+  margin-right: auto;
+}
+
+.loading-text {
+  color: var(--text-muted);
+}
+
+.empty-state {
+  padding: 2.5rem 1.5rem;
+  border: 1px dashed var(--border-strong);
+  border-radius: 0.75rem;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.error-banner {
+  padding: 0.75rem 1rem;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  border-radius: 0.375rem;
+  color: var(--danger-strong);
+}
+
+.success-banner {
+  padding: 0.75rem 1rem;
+  background: var(--success-soft);
+  border: 1px solid var(--success-soft-border);
+  border-radius: 0.375rem;
+  color: var(--success-strong);
+}
+
+// Collapsible server-side filter panel (savings-passbooks is the first consumer).
+.filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 1.25rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-sm);
+}
+
+.filter-panel__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 1rem;
+}
+
+// Operator select + value input share one row; the input takes the remaining space
+.filter-controls {
+  display: flex;
+  gap: 0.5rem;
+
+  .filter-controls__input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.filter-operator {
+  flex: none;
+  width: 4.75rem;
+}
+
+.filter-panel__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+// Active-filter count chip on the toolbar toggle
+.filter-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.25rem;
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: var(--brand-soft);
+  color: var(--brand-text);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.empty-state p {
+  margin: 0 0 0.75rem;
+}
+
+.quick-link-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.quick-link {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1.25rem;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-sm);
+  text-decoration: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+
+  &:hover {
+    border-color: var(--brand);
+    box-shadow: var(--shadow-brand);
+  }
+
+  &__title {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 1rem;
+  }
+
+  &__description {
+    color: var(--text-muted);
+    font-size: 0.875rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .page {
+    padding: 1.25rem;
+  }
+
+  // Toolbar buttons (Filters / bulk delete / Add) wrap rather than overflow
+  .page-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .filter-panel__grid {
+    grid-template-columns: 1fr;
+  }
+}

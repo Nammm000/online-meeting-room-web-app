@@ -1,0 +1,7 @@
+/* You can add global styles to this file, and also import other style files */
+@import "scss/theme.scss"; // first: theme tokens + page base + theme toggle chrome
+@import "scss/modal.scss";
+@import "scss/table.scss";
+@import "scss/page.scss";
+@import "scss/notification.scss"; // header bell dropdown (kept out of header.scss's budget)
+@import "scss/icon.scss";

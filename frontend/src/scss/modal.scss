@@ -1,0 +1,301 @@
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: var(--backdrop);
+  z-index: 1000;
+}
+
+.modal-container {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 1001;
+  width: calc(100% - 40px);
+  max-width: 460px;
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
+  // Scrollbar thumb only visible while scrolling — .is-scrolling is toggled
+  // by the AutoHideScrollbar directive on the modal-container element
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.2s ease;
+
+  &.is-scrolling {
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+}
+
+.modal-content {
+  background: var(--surface-1);
+  border-radius: 0.75rem;
+  box-shadow: var(--shadow-lg);
+  padding: 2rem;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+//   margin-bottom: 1.5rem;
+}
+
+.modal-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 2rem;
+  color: var(--text-on-brand); // sits on the blue .form-header
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  &:hover {
+    color: var(--text-secondary);
+  }
+}
+
+.close-icon {
+  font-size: 1.5rem;
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.form-group input,
+.form-group select {
+  padding: 0.75rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  font-size: 1rem;
+  background: var(--surface-1);
+  color: var(--text-primary);
+  transition: border-color 0.15s ease;
+
+  &:focus {
+    outline: none;
+    border-color: var(--brand);
+    box-shadow: var(--focus-ring);
+  }
+
+  &.error {
+    border-color: var(--danger);
+  }
+}
+
+// Text input with a trailing action button (the OK trigger in the savings-passbook form)
+.input-action-row {
+  display: flex;
+  gap: 0.5rem;
+
+  input {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.ok-button {
+  padding: 0.75rem 1.25rem;
+  background: var(--brand);
+  color: var(--text-on-brand);
+  border: none;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--brand-hover);
+  }
+
+  &:disabled {
+    background: var(--text-disabled);
+    cursor: not-allowed;
+  }
+}
+
+// Password input with an eye toggle button inside its right edge
+// (see the .eye/.eye-slash glyphs in scss/icon.scss)
+.password-field {
+  position: relative;
+
+  input {
+    // Keep typed text clear of the toggle button
+    padding-right: 2.75rem;
+    width: stretch;
+  }
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 0.5rem;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  padding: 0.25rem;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text-secondary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand-text);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+}
+
+.form-hint {
+  color: var(--text-muted);
+  font-size: 0.8125rem;
+  margin: 0;
+}
+
+.error-message {
+  color: var(--danger-text);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.remind-message {
+  color: var(--danger-text);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
+.success-message {
+  color: var(--success);
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.password-requirements {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  margin-top: 0.25rem;
+
+  p {
+    margin: 0.25rem 0;
+
+    &.invalid {
+      color: var(--danger-text);
+    }
+  }
+}
+
+.submit-button {
+  padding: 0.75rem 1.5rem;
+  background: var(--brand);
+  color: var(--text-on-brand);
+  border: none;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: var(--brand-hover);
+  }
+
+  &:disabled {
+    background: var(--text-disabled);
+    cursor: not-allowed;
+  }
+
+  &--danger {
+    background: var(--danger);
+
+    &:hover:not(:disabled) {
+      background: var(--danger-hover);
+    }
+  }
+}
+
+.secondary-button {
+  padding: 0.75rem 1.5rem;
+  background: var(--surface-1);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-strong);
+  border-radius: 0.375rem;
+  font-weight: 500;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+
+  &:hover {
+    background: var(--surface-hover);
+  }
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.modal-container--sm {
+  max-width: 400px;
+}
+
+// Responsive design
+@media (max-width: 640px) {
+  .modal-container {
+    width: calc(100% - 2rem);
+    max-height: calc(100dvh - 2rem);
+  }
+
+  .modal-content {
+    padding: 1.5rem;
+  }
+}
+
+.form-header {
+    background-color: var(--brand);
+    margin-bottom: 0;
+    border-radius: 0.75rem 0.75rem 0 0;
+    padding: 0 2rem;
+    h2 {
+        color: var(--text-on-brand);
+    }
+}
+
+.form-content {
+    border-radius: 0 0 0.75rem 0.75rem;
+}

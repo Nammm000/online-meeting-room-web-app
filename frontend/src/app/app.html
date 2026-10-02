@@ -1,0 +1,15 @@
+<app-header />
+<div class="app-layout">
+  @if (authService.isAuthenticated()) {
+    <aside class="app-layout__sidebar">
+      <app-sidebar />
+    </aside>
+  }
+  <main class="app-layout__content">
+    <router-outlet />
+  </main>
+</div>
+<app-login />
+<app-signup />
+<app-change-password />
+<app-confirmation />

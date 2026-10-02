@@ -1,0 +1,147 @@
+// Theme layer — MUST stay imported first in styles.scss.
+// Convention (keep in sync — three places share it and cannot import each other):
+//   localStorage key: 'asset-manager.theme'   values: 'light' | 'dark'
+//   attribute:        data-theme on <html>    (set pre-paint by index.html, then by ThemeService)
+
+:root {
+  color-scheme: light;
+
+  // Backgrounds & surfaces
+  --bg-page: #ffffff;
+  --surface-1: #ffffff;          // cards, header, sidebar, modals, dropdowns, white-bg buttons
+  --surface-2: #f9fafb;          // table th, row hover, detail rows (recessed)
+  --surface-hover: #f3f4f6;      // hover fills (buttons, links, dropdown items)
+
+  // Text
+  --text-primary: #1f2937;
+  --text-secondary: #374151;
+  --text-muted: #6b7280;
+  --text-disabled: #9ca3af;      // also disabled button backgrounds
+  --text-on-brand: #ffffff;      // text on blue/violet/red fills
+
+  // Borders
+  --border: #e5e7eb;             // card/table wrappers, section dividers
+  --border-strong: #d1d5db;      // inputs, outlined buttons, dashed empty state
+  --border-subtle: #f3f4f6;      // table row separators
+
+  // Brand (blue)
+  --brand: #3b82f6;              // fills, borders
+  --brand-text: #3b82f6;         // links/outlines (lightened on dark for contrast)
+  --brand-hover: #2563eb;
+  --brand-soft: rgba(59, 130, 246, 0.1);
+  // Pre-existing header accent (signup button, avatar) — same value in both
+  // themes by design; defined so header.scss can drop its oklch() fallbacks.
+  --electric-violet: oklch(53.18% 0.28 296.97);
+
+  // Danger
+  --danger: #ef4444;             // fills/borders
+  --danger-text: #ef4444;        // message text (lightened on dark)
+  --danger-hover: #dc2626;
+  --danger-strong: #b91c1c;
+  --danger-soft: #fef2f2;
+  --danger-border: #fca5a5;
+
+  // Success
+  --success: #10b981;
+  --success-strong: #047857;
+  --success-soft: #ecfdf5;
+  --success-soft-border: #a7f3d0;
+
+  // Neutral
+  --neutral-soft: #e5e7eb;       // inactive badge bg
+
+  // Shadows & effects
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.1);
+  --shadow-brand: 0 4px 8px rgba(59, 130, 246, 0.15);
+  --focus-ring: 0 0 0 3px rgba(59, 130, 246, 0.1);
+  --backdrop: rgba(0, 0, 0, 0.5);
+  --scrollbar-thumb: rgba(0, 0, 0, 0.35);
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg-page: #111827;
+  --surface-1: #1f2937;
+  --surface-2: #111827;          // recessed: darker than the card on dark
+  --surface-hover: #374151;
+
+  --text-primary: #f3f4f6;
+  --text-secondary: #d1d5db;
+  --text-muted: #9ca3af;
+  --text-disabled: #6b7280;
+  --text-on-brand: #ffffff;
+
+  --border: #374151;
+  --border-strong: #4b5563;
+  --border-subtle: #374151;
+
+  --brand: #3b82f6;
+  --brand-text: #60a5fa;         // blue-400: ~5.7:1 on gray-900 vs ~3.1:1 for blue-500
+  --brand-hover: #60a5fa;        // dark hovers lighten, standard dark-mode behavior
+  --brand-soft: rgba(59, 130, 246, 0.25);
+  // --electric-violet unchanged (inherits from :root)
+
+  --danger: #ef4444;
+  --danger-text: #f87171;        // red-400
+  --danger-hover: #f87171;
+  --danger-strong: #fca5a5;      // red-300
+  --danger-soft: #7f1d1d;        // red-900
+  --danger-border: #b91c1c;      // red-700
+
+  --success: #34d399;            // emerald-400
+  --success-strong: #6ee7b7;     // emerald-300
+  --success-soft: #064e3b;       // emerald-900
+  --success-soft-border: #065f46;
+
+  --neutral-soft: #374151;
+
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 10px 25px rgba(0, 0, 0, 0.6);
+  --shadow-brand: 0 4px 8px rgba(59, 130, 246, 0.3);
+  --focus-ring: 0 0 0 3px rgba(59, 130, 246, 0.35);
+  --backdrop: rgba(0, 0, 0, 0.7);
+  --scrollbar-thumb: rgba(255, 255, 255, 0.35);
+}
+
+// Page base (body previously had no background — required for dark)
+body {
+  background: var(--bg-page);
+  color: var(--text-primary);
+}
+
+// ── Theme toggle control (global so header.scss stays inside its 4kB budget).
+// Same shape language as the sidebar toggle.
+.header__right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header__theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 0.375rem;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand-text);
+    outline-offset: 2px;
+  }
+}

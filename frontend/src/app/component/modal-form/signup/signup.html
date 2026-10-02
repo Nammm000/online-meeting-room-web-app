@@ -1,0 +1,166 @@
+@if (isVisible()) {
+<!-- Backdrop -->
+<div class="modal-backdrop" (click)="close()"></div>
+
+<!-- Modal Content -->
+<div class="modal-container" appAutoHideScrollbar>
+  <!-- Header -->
+  <div class="modal-header form-header">
+    <h2 class="modal-title">Sign Up</h2>
+    <button class="close-button" (click)="close()">
+      <span class="close-icon">&times;</span
+      ><!-- &times; × -->
+    </button>
+  </div>
+  <div class="modal-content form-content">
+    <!-- Body - Form -->
+    <form class="modal-form" (ngSubmit)="submit($event)">
+      <!-- Email -->
+      <div class="form-group">
+        <label for="email">Email</label>
+        <input
+          type="email"
+          id="email"
+          [(ngModel)]="email"
+          name="email"
+          required
+          [class.error]="!isEmailValid() && email()"
+          placeholder="Enter your email"
+        />
+        @if (!isEmailValid() && email()) {
+        <p class="error-message">Please enter a valid email address</p>
+        }
+      </div>
+
+      <!-- Name -->
+      <div class="form-group">
+        <label for="name">Name</label>
+        <input
+          type="text"
+          id="name"
+          [(ngModel)]="name"
+          name="name"
+          required
+          [class.error]="!isNameValid() && name()"
+          placeholder="Enter your name"
+        />
+        @if (!isNameValid() && name()) {
+        <p class="error-message">Please enter a valid name</p>
+        }
+      </div>
+
+      <!-- Phone -->
+      <div class="form-group">
+        <label for="phone">Phone</label>
+        <input
+          type="tel"
+          id="phone"
+          [(ngModel)]="phone"
+          name="phone"
+          required
+          [class.error]="!isPhoneValid() && phone()"
+          placeholder="Enter your phone number"
+        />
+        @if (!isPhoneValid() && phone()) {
+        <p class="error-message">Please enter a valid phone number</p>
+        }
+      </div>
+
+      <!-- Password -->
+      <div class="form-group">
+        <label for="password">Password</label>
+        <div class="password-field">
+          <input
+            [type]="hidePassword ? 'password':'text'"
+            id="password"
+            [(ngModel)]="password"
+            name="password"
+            required
+            [class.error]="!passwordRequirements().allValid && password()"
+            placeholder="Enter your password"
+          />
+          <button
+            class="password-toggle"
+            type="button"
+            (click)="hidePassword = !hidePassword"
+            [attr.aria-label]="hidePassword ? 'Show password' : 'Hide password'"
+          >
+            @if (hidePassword) {
+              <i class="icon-18 eye"></i>
+            } @else {
+              <i class="icon-18 eye-slash"></i>
+            }
+          </button>
+        </div>
+
+        @if (passwordRequirements().allValid && password()) {
+        <p class="success-message">Password meets all requirements</p>
+        } @else if (!passwordRequirements().allValid && password()) {
+        <div class="password-requirements">
+          <p [class.invalid]="!passwordRequirements().minLength">
+            * At least 8 characters
+          </p>
+          <p [class.invalid]="!passwordRequirements().hasUpperCase">
+            * At least 1 uppercase letter
+          </p>
+          <p [class.invalid]="!passwordRequirements().hasLowerCase">
+            * At least 1 lowercase letter
+          </p>
+          <p [class.invalid]="!passwordRequirements().hasNumber">
+            * At least 1 number
+          </p>
+          <p [class.invalid]="!passwordRequirements().hasSpecialChar">
+            * At least 1 special character
+          </p>
+        </div>
+        }
+      </div>
+
+      <!-- Confirm Password -->
+      <div class="form-group">
+        <label for="confirmPassword">Confirm Password</label>
+        <div class="password-field">
+          <input
+            [type]="hideConfirmPassword ? 'password':'text'"
+            id="confirmPassword"
+            [(ngModel)]="confirmPassword"
+            name="confirmPassword"
+            required
+            [class.error]="!passwordsMatch() && confirmPassword()"
+            placeholder="Confirm your password"
+          />
+          <button
+            class="password-toggle"
+            type="button"
+            (click)="hideConfirmPassword = !hideConfirmPassword"
+            [attr.aria-label]="hideConfirmPassword ? 'Show password' : 'Hide password'"
+          >
+            @if (hideConfirmPassword) {
+              <i class="icon-18 eye"></i>
+            } @else {
+              <i class="icon-18 eye-slash"></i>
+            }
+          </button>
+        </div>
+        @if (!passwordsMatch() && confirmPassword()) {
+        <p class="error-message">Password must match the input password</p>
+        }
+      </div>
+
+      <!-- API Error -->
+      @if (errorMessage()) {
+      <p class="error-message">{{ errorMessage() }}</p>
+      }
+
+      <!-- Submit Button -->
+      <button
+        type="submit"
+        class="submit-button"
+        [disabled]="!canSubmit() || submitting()"
+      >
+        Sign Up
+      </button>
+    </form>
+  </div>
+</div>
+}

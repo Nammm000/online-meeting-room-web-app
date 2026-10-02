@@ -1,0 +1,66 @@
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">{{ langService.t('menu.users') }}</h1>
+    <p class="page-subtitle">Manage accounts, roles and status.</p>
+  </div>
+
+  @if (loading()) {
+    <p class="loading-text">Loading…</p>
+  } @else if (errorMessage()) {
+    <p class="error-banner">{{ errorMessage() }}</p>
+  } @else if (!rows().length) {
+    <p class="empty-state">No users found.</p>
+  } @else {
+    <div class="table-wrapper">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Name</th>
+            <th>Email</th>
+            <th>Phone</th>
+            <th>Role</th>
+            <th>{{ langService.t('common.status') }}</th>
+            <th>{{ langService.t('common.created') }}</th>
+            <th>{{ langService.t('common.actions') }}</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (user of rows(); track user.id) {
+            <tr>
+              <td>{{ user.id }}</td>
+              <td>{{ user.name }}</td>
+              <td>{{ user.email }}</td>
+              <td>{{ user.phone }}</td>
+              <td>
+                <select class="role-select" [value]="user.role" (change)="onRoleChange(user, $event)"
+                        aria-label="Role for {{ user.email }}">
+                  @for (role of assignableRoles; track role) {
+                    <option [value]="role" [selected]="role === user.role">{{ role }}</option>
+                  }
+                </select>
+              </td>
+              <td>
+                <span class="badge" [class.badge--active]="user.status === 'true'"
+                      [class.badge--inactive]="user.status !== 'true'">
+                  {{ user.status === 'true' ? langService.t('common.active') : langService.t('common.inactive') }}
+                </span>
+              </td>
+              <td>{{ customFormattedDate(user.createdTime) }}</td>
+              <td>
+                <div class="table-actions">
+                  <button type="button" class="table-button" (click)="toggleStatus(user)">
+                    {{ user.status === 'true' ? langService.t('common.deactivate') : langService.t('common.activate') }}
+                  </button>
+                  <button type="button" class="table-button table-button--danger" (click)="confirmDelete(user)" title="Delete">
+                    <i class="icon-18 trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  }
+</div>

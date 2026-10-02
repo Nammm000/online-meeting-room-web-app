@@ -1,0 +1,22 @@
+@if (modalService.confirmation(); as request) {
+  <div class="modal-backdrop" (click)="close()"></div>
+
+  <div class="modal-container modal-container--sm" appAutoHideScrollbar
+       role="alertdialog" aria-modal="true" [attr.aria-label]="request.title">
+    <div class="modal-header form-header">
+      <h2 class="modal-title">{{ request.title }}</h2>
+      <button class="close-button" type="button" (click)="close()" aria-label="Close">
+        <span class="close-icon">&times;</span>
+      </button>
+    </div>
+
+    <div class="modal-content form-content">
+      <p class="confirmation-message">{{ request.message }}</p>
+      <div class="modal-actions">
+        <button type="button" class="secondary-button" (click)="close()">{{ request.cancelLabel }}</button>
+        <button type="button" class="submit-button" [class.submit-button--danger]="request.danger"
+                (click)="confirm()">{{ request.confirmLabel }}</button>
+      </div>
+    </div>
+  </div>
+}

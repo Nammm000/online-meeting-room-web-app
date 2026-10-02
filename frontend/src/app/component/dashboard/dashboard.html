@@ -1,0 +1,15 @@
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">{{ langService.t('menu.dashboard') }}</h1>
+    <p class="page-subtitle">{{ welcome() }}</p>
+  </div>
+
+  <div class="quick-link-grid">
+    @for (item of items(); track item.path) {
+      <a class="quick-link" [routerLink]="['/' + item.path]">
+        <span class="quick-link__title">{{ langService.t(item.labelKey) }}</span>
+        <span class="quick-link__description">{{ item.description }}</span>
+      </a>
+    }
+  </div>
+</div>

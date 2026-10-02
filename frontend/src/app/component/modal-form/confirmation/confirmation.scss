@@ -1,0 +1,5 @@
+// All modal chrome is global in src/scss/modal.scss — see login.scss/signup.scss.
+.confirmation-message {
+  color: var(--text-secondary);
+  margin: 0 0 1.5rem;
+}

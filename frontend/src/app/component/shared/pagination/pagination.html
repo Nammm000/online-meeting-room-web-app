@@ -1,0 +1,25 @@
+<nav class="pagination" aria-label="Pagination">
+  <label class="pagination__size-label">
+    Rows per page
+    <select class="pagination__size" (change)="onSizeChange($event)">
+      @for (size of sizeOptions; track size) {
+        <option [value]="size" [selected]="size === pageSize()">{{ size }}</option>
+      }
+    </select>
+  </label>
+  @if (totalPages() > 1) {
+    <button type="button" class="pagination__btn" [disabled]="!canPrev()" (click)="go(page() - 1)"
+            aria-label="Previous page">&lsaquo;</button>
+    @for (p of window(); track $index) {
+      @if (p === -1) {
+        <span class="pagination__ellipsis">&hellip;</span>
+      } @else {
+        <button type="button" class="pagination__btn" [class.pagination__btn--active]="p === page()"
+                [attr.aria-current]="p === page() ? 'page' : null" (click)="go(p)">{{ p + 1 }}</button>
+      }
+    }
+    <button type="button" class="pagination__btn" [disabled]="!canNext()" (click)="go(page() + 1)"
+            aria-label="Next page">&rsaquo;</button>
+    <span class="pagination__label">Page {{ page() + 1 }} of {{ totalPages() }}</span>
+  }
+</nav>

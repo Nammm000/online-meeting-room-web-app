@@ -1,0 +1,134 @@
+// Drop zone + selection lists only — table/banner/button/empty-state chrome is
+// global (page.scss, table.scss, modal.scss). Semantic tokens per theme.scss.
+
+// Visually hidden but focusable (user-setting avatar input recipe)
+.pdf-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  clip-path: inset(50%);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 2.5rem 1.5rem;
+  border: 2px dashed var(--border-strong);
+  border-radius: 0.75rem;
+  background: var(--surface-1);
+  text-align: center;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+
+  &:hover,
+  &:focus-visible {
+    border-color: var(--brand);
+    outline: var(--focus-ring);
+  }
+
+  &--over {
+    border-color: var(--brand);
+    background: var(--brand-soft);
+  }
+
+  &__icon {
+    color: var(--text-muted);
+  }
+
+  &__title {
+    margin: 0;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__hint {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+}
+
+// Staged-for-upload and skipped-file lists share one layout
+.selection-list {
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.75rem;
+  background: var(--surface-1);
+
+  &--rejected {
+    border-color: var(--danger-border);
+    background: var(--danger-soft);
+  }
+
+  &__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+  }
+
+  &__title {
+    margin: 0 0 0.5rem;
+    font-weight: 600;
+    color: var(--text-primary);
+
+    .selection-list__header & {
+      margin: 0;
+    }
+  }
+
+  ul {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin: 0.5rem 0 0;
+    padding: 0;
+    list-style: none;
+
+    .selection-list__header + & {
+      margin-top: 0.75rem;
+    }
+  }
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+
+    .icon-18 {
+      flex-shrink: 0;
+      color: var(--text-muted);
+    }
+  }
+
+  &__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-primary);
+  }
+
+  &__size {
+    flex-shrink: 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  &__reason {
+    flex-shrink: 0;
+    font-size: 0.875rem;
+    color: var(--danger-text);
+  }
+}

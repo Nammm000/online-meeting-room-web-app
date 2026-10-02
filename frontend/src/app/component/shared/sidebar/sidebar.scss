@@ -1,0 +1,169 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 0.75rem;
+  box-sizing: border-box; // keep min-height + padding inside the sticky aside
+  min-height: 100%; // let the toggle stick to the bottom of the viewport
+}
+
+.sidebar__link {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  border-radius: 0.375rem;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  &--active {
+    background: var(--brand-soft);
+    color: var(--brand-text);
+    font-weight: 600;
+
+    &:hover {
+      background: var(--brand-soft);
+      color: var(--brand-text);
+    }
+  }
+}
+
+.sidebar__label {
+  white-space: nowrap;
+}
+
+// Icons-only mode — the app shell narrows the aside to match (see app.scss)
+.sidebar--collapsed {
+  .sidebar__link {
+    justify-content: center;
+  }
+
+  .sidebar__label {
+    display: none;
+  }
+}
+
+.sidebar__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: end;
+  margin-top: auto; // pinned to the bottom of the sidebar
+  padding: 0.375rem;
+  border: none;
+  border-radius: 0.375rem;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+
+  &:hover {
+    background: var(--surface-hover);
+    color: var(--text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--brand-text);
+    outline-offset: 2px;
+  }
+}
+
+// Mobile hamburger row + drawer backdrop — hidden at desktop widths; the media
+// query below is the only place either becomes visible, so an open drawer that
+// outlives a resize to desktop can never leave chrome stuck on screen.
+.sidebar__hamburger {
+  display: none;
+}
+
+.sidebar__backdrop {
+  display: none;
+}
+
+// Mobile: the aside keeps only the hamburger row; the nav itself becomes a
+// fixed drawer sliding in from the left, under the sticky header.
+@media (max-width: 640px) {
+  .sidebar__hamburger {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    border: none;
+    background: none;
+    color: var(--text-secondary);
+    font-size: 0.9375rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+
+    &:hover {
+      background: var(--surface-hover);
+      color: var(--text-primary);
+    }
+
+    &:focus-visible {
+      outline: 2px solid var(--brand-text);
+      outline-offset: 2px;
+    }
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 72px;
+    bottom: 0;
+    left: 0;
+    width: min(280px, 85vw);
+    z-index: 95; // above the backdrop, below the sticky header (z-index 100)
+    overflow-y: auto;
+    min-height: 0;
+    background: var(--surface-1);
+    box-shadow: var(--shadow-lg);
+    transform: translateX(-100%);
+    visibility: hidden; // a closed drawer stays out of the tab order
+    transition:
+      transform 0.25s ease,
+      visibility 0s linear 0.25s; // stay painted while sliding out, then hide
+  }
+
+  .sidebar--open {
+    transform: none;
+    visibility: visible;
+    transition:
+      transform 0.25s ease,
+      visibility 0s; // visible at once when sliding in
+  }
+
+  // collapsed state is desktop-only: the drawer always shows labels
+  .sidebar--collapsed .sidebar__label {
+    display: inline;
+  }
+
+  .sidebar__toggle {
+    display: none;
+  }
+
+  .sidebar__backdrop {
+    display: block;
+    position: fixed;
+    top: 72px;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 90;
+    background: var(--backdrop);
+    animation: sidebar-backdrop-in 0.2s ease;
+  }
+}
+
+@keyframes sidebar-backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
