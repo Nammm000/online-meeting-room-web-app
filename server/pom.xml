@@ -138,6 +138,13 @@
 			<artifactId>minio</artifactId>
 			<version>8.5.17</version>
 		</dependency>
+		<!-- LiveKit server SDK: AccessToken minting, RoomServiceClient (rooms),
+		     WebhookReceiver (signed webhook validation). Java 17 target. -->
+		<dependency>
+			<groupId>io.livekit</groupId>
+			<artifactId>livekit-server</artifactId>
+			<version>0.16.0</version>
+		</dependency>
 	</dependencies>
 	<build>
 		<plugins>

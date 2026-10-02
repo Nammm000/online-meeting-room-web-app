@@ -5,7 +5,7 @@ alwaysApply: true
 
 # Architecture
 
-Standard layered structure: `controllers` → `services` (per domain: `auth` — `auth/`, `refreshToken/`, `RefreshCookieService`; `user`; `jwt`; `image`; `pdf`) → `repo` (Spring Data JPA) → PostgreSQL. MinIO (S3-compatible) backs the image and pdf domains.
+Standard layered structure: `controllers` → `services` (per domain: `auth` — `auth/`, `refreshToken/`, `RefreshCookieService`; `user`; `jwt`; `image`; `pdf`; `meeting` — orchestrators `MeetingService`/`MeetingParticipantService`/`MeetingChatService` (NOT @Transactional — DB transitions commit via `MeetingStateService` first, media calls follow best-effort), the `MeetingAuthority` permission guard, and `JoinCodeGenerator`; `media` — `LiveKitMediaService` (SDK rooms+tokens), `JanusAudioBridgeClient` (AudioBridge admin over ephemeral HTTP sessions via `JanusHttpTransport`), `RoomSecretDeriver` (deterministic per-room secret/pin), `MediaTokenService` — never throw, log and return false) → `repo` (Spring Data JPA) → PostgreSQL. MinIO (S3-compatible) backs the image and pdf domains; LiveKit (video SFU) + Janus AudioBridge (audio MCU) + coturn back the meeting media plane (design: `docs/meeting-media-architecture.md`, infra: `docker-compose.yml` + `docker/`).
 
 Cross-cutting pieces:
 

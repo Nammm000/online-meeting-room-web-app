@@ -49,6 +49,10 @@ public class WebSecurityConfiguration {
                         // (browser WebSocket API); auth is enforced by WebSocketAuthInterceptor
                         // validating the token query param.
                         .requestMatchers("/ws/**").permitAll()
+                        // LiveKit server→server webhooks carry their own signed-JWT Authorization
+                        // header, validated in LiveKitWebhookController (WebhookReceiver) — the
+                        // same permitAll-delegates-to-the-real-check pattern as /ws/**.
+                        .requestMatchers("/webhooks/livekit").permitAll()
                         .requestMatchers("/dashboard/details",
                                 "/news/getPublicNews", "/news/getAllNews",
                                 "/news/getNewsById/{id}", "/news/updateViews/{id}",

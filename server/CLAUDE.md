@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Spring Boot 3.2.3 / Java 17 backend, currently a **temporary project for registration and login** with JWT access + refresh tokens (package `tech.getarrays.meetingroom`), plus the **meeting-room domain at the schema layer** (`models/meeting/` entities + repos; no services/controllers yet — design in `docs/meeting-database-design.md`). Forked from the sibling `assetManager` project with the entire asset domain removed — see `project-overview.md` for what's left over and for known code issues.
+Spring Boot 3.2.3 / Java 17 backend (package `tech.getarrays.meetingroom`) with JWT access + refresh tokens and the **meeting-room domain fully implemented at the backend**: entities/repos + the complete meeting control plane (services, controllers, media integration with self-hosted LiveKit/Janus/coturn — see `docs/meeting-media-architecture.md`). The Angular meeting UI does not exist yet; remaining work is tracked in `docs/implementation-status.md`. Forked from the sibling `assetManager` project — see `project-overview.md` for leftovers and known code issues.
 
 Detailed guidance is split into topic-specific rule files in `.claude/rules/`:
 

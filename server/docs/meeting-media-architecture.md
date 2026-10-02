@@ -30,7 +30,7 @@ flowchart TB
     API --> MINIO
     UI <-.->|WebSocket push| NWS
     API -->|"server SDK: CreateRoom / tokens / RemoveParticipant"| LK
-    API -->|"admin API: add_token / mute / destroy"| JANUS
+    API -->|"admin API: create / mute / kick / destroy"| JANUS
     LK -.->|webhooks| API
 
     PC1 ===|"SRTP — camera/screen (maybe)"| LK
@@ -92,7 +92,7 @@ Self-hosted open source only (must drop into the existing docker-compose dev sta
 ### Primary: LiveKit (video SFU) + Janus AudioBridge (audio MCU) + coturn
 
 1. **The backend stays Java-only.** The official Maven SDK (`io.livekit:livekit-server`) means no Node sidecar for signaling — mediasoup fails exactly here.
-2. **Postgres-owned admission maps 1:1 onto token minting.** Both media servers are token-gated; the waiting room, lock, and removal semantics already designed into `meetings`/`meeting_participants` enforce themselves at the edge. LiveKit JWT grants additionally let the *server* enforce video-only participation (`canPublishAudio: false`, `canPublishData: false`) instead of trusting the client.
+2. **Postgres-owned admission maps 1:1 onto credential minting.** LiveKit is token-gated (JWT grants) and AudioBridge is pin-gated (per-room pin); the waiting room, lock, and removal semantics already designed into `meetings`/`meeting_participants` enforce themselves at the edge. LiveKit JWT grants additionally let the *server* enforce video-only participation (`canPublishSources: ["camera", "screen_share"]`, `canPublishData: false` — the source allowlist excludes the microphone) instead of trusting the client.
 3. **The Angular 21 client gets a first-class npm library** for the harder UX (screen share, simulcast layer switching, adaptive quality). The audio client surface is tiny — join/configure/mute/talking-events — so a hand-rolled typed WebSocket client (§6) is a feature, not a liability.
 4. **AudioBridge is the only battle-tested, self-hostable OSS audio MCU** that drops into compose: per-participant and room-wide admin `mute` implement host authority *server-side*; `talking` events feed the active-speaker UI; WAV/MJR recording and `rtp_forward` of the mix are ready hooks for future transcription/recording.
 5. **Sparse-video economics.** SFU egress tracks active publishers; with the avatar-when-no-video UX most participants publish no video at all (§8).
@@ -117,15 +117,15 @@ mediasoup is **not rejected** — it is documented as a full alternative in §10
 
 - **Room = `join_code`** (created at meeting start, deleted at end). The internal `meetings.id` is never a room name.
 - **Spring is the only holder of the API key/secret.** It calls `RoomServiceClient` (`createRoom` with a bounded `emptyTimeout` ≈ 15–30 min, `deleteRoom`, `removeParticipant`) and mints short-TTL AccessTokens.
-- **Token grants** (video-only by construction): `roomJoin: true`, `room: <join_code>`, `canSubscribe: true`, `canPublishSources: ["camera", "screen_share"]`, `canPublishAudio: false`, `canPublishData: false`, `identity: <users.id as string>` (the identity is what `removeParticipant` targets), display `name`.
+- **Token grants** (video-only by construction): `roomJoin: true`, `room: <join_code>`, `canSubscribe: true`, `canPublishSources: ["camera", "screen_share"]`, `canPublishData: false`, `identity: <users.id as string>` (the identity is what `removeParticipant` targets), display `name`. Note: the Kotlin SDK has no `canPublishAudio` grant — `CanPublishSources` supersedes it, so restricting sources to camera + screen_share excludes `microphone`/`screen_share_audio` server-side (same effect, different mechanism).
 - **Webhooks** → `POST /webhooks/livekit` (path permitted at the Spring level, LiveKit's signed-JWT `Authorization` header validated in the endpoint — same permitAll-delegates-to-the-real-check pattern as `/ws/**`). Consumed events: `participant_joined`, `participant_left`, `room_finished`.
 - **Do-not-use list:** LiveKit's built-in chat, data channels, and participant metadata-as-roster. The app owns chat (`meeting_chat_messages`) and the roster (`meeting_participants`); LiveKit participants are a *projection*, not a source.
 
 ### 4.2 Janus AudioBridge (audio plane)
 
 - **Room = numeric `meetings.id`** — AudioBridge room ids are numeric and `join_code` is base32; the doc calls out this asymmetry deliberately: video room is keyed by the external id, audio room by the internal one.
-- Browser connects **directly** to Janus's WebSocket (:8188) with a token minted by Spring via the token-auth plugin's admin API (`add_token` / `remove_token` with `admin_secret`); Janus's WebSocket origin check must allow the frontend origin, mirroring the existing `/ws/notifications` origin handling.
-- Message surface the app uses: `create` (at meeting start), `join` (with `muted: true` when `mute_on_entry`), `configure` (self mute), `mute` / `unmute` (admin, by feeder id), `mute_room` (all), `leave`, plus the `talking` events AudioBridge emits (audio-level extension → `talking` flag) for active-speaker UI.
+- Browser connects **directly** to Janus's WebSocket (:8188). No token-auth plugin: each room is created with a per-room **secret** (admin ops — derived deterministically by `RoomSecretDeriver`, held only by Spring; a secret-carrying joiner would become an unmuteable admin, so it never reaches a client) and a random **pin** (join credential, handed to admitted clients with the room id). Participants join with `{request:"join", room, id: <users.id>, pin, display, muted}` — the explicit `id = users.id` convention means every admin op (`mute`, `kick`) targets users by id with no feeder lookup. Janus's WebSocket origin check must allow the frontend origin, mirroring the existing `/ws/notifications` origin handling.
+- Message surface the app uses: `create` (at meeting start, carrying `admin_key` + `secret` + `pin`), `join` (with `muted: true` when `mute_on_entry`), `configure` (self mute), `mute` / `unmute` (admin, by user id + `secret`), `kick` (verified request name), `mute_room` (all), `destroy`, `exists` (idempotent ensure), `leave`, plus the `talking` events AudioBridge emits (audio-level extension → `talking` flag) for active-speaker UI.
 - **Future hooks, not used yet:** mixed-audio WAV recording and `rtp_forward` of the mix to an external RTP pipeline (transcription, recording to MinIO).
 - Janus has **no outbound webhooks** — audio-plane presence is derived from the app's own admission records (`status=JOINED`); `listparticipants` exists if a reconciliation view is ever needed.
 
@@ -183,9 +183,8 @@ HOST/COHOST     Spring                            DB                media server
  │                                   │  join_count++,                   │
  │                                   │  muted = mute_on_entry OR prior  │
  │                                   │        COMMIT                    │
- │                                   │ mint LK JWT (TTL ≤5 min) ──────► │
- │                                   │ janus add_token ─────────────────►
- │ ◄── tokens delivered to the admitted client (poll or per-user push) ──┘
+ │ ◄── nothing yet — the admitted client picks up credentials on its next │
+ │     /me poll: LK JWT (TTL ≤5 min) + AudioBridge room id + pin          │
 ```
 
 **JOINED means admitted, not connected** — the DB deliberately has no presence column; connectivity is a LiveKit webhook fact (`participant_joined`), recorded as nothing more than UI state. `muted = mute_on_entry OR prior muted` implements both the setting and mute-survives-rejoin in one expression; the AudioBridge join carries `muted: true` accordingly.
@@ -203,7 +202,7 @@ HOST sets `meetings.locked = true` → the service simply **stops minting tokens
 
 ### 5.6 Remove
 
-Txn `JOINED → REMOVED`, `last_left_at` → LiveKit `removeParticipant(join_code, identity)` + AudioBridge kick (exact request name to be verified against the pinned Janus version — spike item) + `remove_token`. Race noted: a removed participant holding a live token could reconnect until revocation lands — short TTLs (≤5 min) bound the window.
+Txn `JOINED → REMOVED`, `last_left_at` → LiveKit `removeParticipant(join_code, identity, revokeTokenTs = now)` (disconnects and revokes every token issued before now) + AudioBridge `kick(room, id = users.id, secret)`. Race noted: a removed participant holding a live token could reconnect until revocation lands — short TTLs (≤5 min) bound the window.
 
 ### 5.7 End
 
@@ -223,7 +222,7 @@ Compose additions follow house conventions (`myrooms-*` container names, pinned 
 | Service | Image | Host ports | Key config |
 |---|---|---|---|
 | `livekit` | `livekit/livekit-server:<pin>` | `7880:7880/tcp` (HTTP+WS signaling), `50100-50200:50100-50200/udp` (RTC range, narrowed from the 50000-60000 default) | yaml config: `keys` (shared with Spring), `rtc.port_range_start/end: 50100/50200`, embedded TURN **disabled** (coturn owns 3478) |
-| `janus` | no official Meetecho image — build from the Dockerfile in the `meetecho/janus-gateway` repo, or a community image such as `canyan/janus-gateway` (pin either way) | `8188:8188/tcp` (WS), `8088:8088/tcp` (HTTP admin), `51000-51100:51000-51100/udp` (RTP, narrowed from 20000-40000) | mounted jcfg: token-auth plugin + `admin_secret`, WS origin = frontend origin, `rtp_port_range: 51000-51100`, TURN entry |
+| `janus` | `myrooms-janus:1.4.2` — **built from source** via `docker/janus/Dockerfile` (no official Meetecho image exists; community images are stale or untagged) | `8188:8188/tcp` (WS), `8088:8088/tcp` (HTTP admin), `51000-51100:51000-51100/udp` (RTP, narrowed from 20000-40000) | two jcfg overrides mounted whole-file over the stock configs: AudioBridge (`admin_key`, `rtp_port_range`, talking events) + WebSocket transport (8188, origin allowlist); per-room secret/pin via the API, no token-auth plugin |
 | `coturn` | `coturn/coturn:<pin>` | `3478:3478/udp` + `3478:3478/tcp`, `5349:5349/tcp` (TLS, optional dev), `61000-61100:61000-61100/udp` (relay) | `--lt-cred-mech --realm --static-auth-secret --min-port 61000 --max-port 61100 --external-ip <LAN_IP>` |
 
 Port audit (no collisions; incumbents: 4200 frontend, 8083 API, 5434 PG, 9002/9003 MinIO, 6378 Redis): additions are 7880, 8188, 8088, 3478, 5349 + three UDP ranges. **Watch the 8088 (Janus admin) vs 8083 (API) visual confusion.** `application.properties` gains (house format, commented): `app.livekit.ws-url`, `app.livekit.api-key`, `app.livekit.api-secret`, `app.janus.ws-url`, `app.janus.admin-secret`. macOS note: Docker Desktop's UDP-range forwarding is the flakiest part of local WebRTC dev — test on a real network/LAN device before doubting the architecture.
@@ -248,7 +247,7 @@ Port audit (no collisions; incumbents: 4200 frontend, 8083 API, 5434 PG, 9002/90
 7. **Roster avatar gap:** `/images/avatar` is owner-scoped; the roster needs a future `GET /users/{id}/avatar` (§6).
 8. **Reconciliation races:** LiveKit allows ~15 s of grace before `participant_left`; policy — `participant_left` triggers an idempotent `JOINED → LEFT`, and the rejoin path (`join_count++`) already exists.
 9. **Token hygiene:** short TTLs (≤5 min), revoke on remove/end; a removed participant with a live token can reconnect until revocation lands.
-10. **Janus specifics to verify at pin time:** the kick request's exact name, token-auth plugin details, `ws_origin` behavior.
+10. **Janus specifics verified at implementation time:** `kick` is the request name; per-room `secret`/`pin` replaced the token-auth plugin (simpler, same authority model); `enforce_cors` on the WS transport starts permissive — tighten after the client integration spike.
 11. **License note:** Janus is GPLv3 — fine self-hosted; revisit only if the product is ever distributed as a hosted binary.
 12. **No schema change** — stated as a positive: the DB design already carries every control column the media plane needs.
 

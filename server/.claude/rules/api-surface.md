@@ -7,9 +7,51 @@ alwaysApply: false
 
 # API Surface
 
-Controllers live in `controllers/` — exactly four: `AuthenticationController`, `UserController`, `UserImageController`, `UserPdfFileController`. "Current user" endpoints resolve via `UserUtils`; per-resource authorization is `UserUtils.checkOwnership` in services (see conventions below).
+Controllers live in `controllers/` — eight: `AuthenticationController`, `UserController`, `UserImageController`, `UserPdfFileController`, plus the meeting domain's `MeetingController`, `MeetingParticipantController`, `MeetingChatController`, and `LiveKitWebhookController`. "Current user" endpoints resolve via `UserUtils`; per-resource authorization is `UserUtils.checkOwnership` in services (see conventions below), and the meeting domain uses `services/meeting/MeetingAuthority` (permission table in `docs/meeting-database-design.md` §3).
 
 ## API Table
+
+### Meetings — `/meetings` (JWT)
+
+| Method | Endpoint | Parameters | Description | Auth |
+| ------ | -------- | ---------- | ----------- | ---- |
+| POST | `/meetings` | body: `CreateMeetingRequest` `{title, description, type: SCHEDULED\|INSTANT, scheduledStartAt, scheduledEndAt, waitingRoomEnabled, muteOnEntry}` | Creates meeting + HOST participant row in one tx. INSTANT → `IN_PROGRESS` with host JOINED and media rooms ensured (response carries host `media` credentials); SCHEDULED requires both timestamps (end after start), host row starts LEFT. 201 `MeetingDTO` | JWT |
+| GET | `/meetings/my` | `page`, `size` | Meetings hosted by the caller, fixed sort `createdAt DESC` → `PagedResponseDTO<MeetingDTO>` | JWT |
+| GET | `/meetings/{joinCode}` | — | Pre-join metadata by join code (never id) — 404 unknown code | JWT |
+| PATCH | `/meetings/{id}/start` | — | Host only, SCHEDULED→IN_PROGRESS (+`actualStartAt`, host row→JOINED, media rooms ensured); 409 wrong status | JWT |
+| PATCH | `/meetings/{id}/cancel` | — | Host only, SCHEDULED→CANCELLED | JWT |
+| PATCH | `/meetings/{id}/end` | — | Host only: rule-4 tx (ENDED + bulk JOINED→LEFT) then LiveKit `deleteRoom` + AudioBridge `destroy` best-effort | JWT |
+
+### Participation & moderation — `/meetings/{joinCode}` (JWT)
+
+| Method | Endpoint | Parameters | Description | Auth |
+| ------ | -------- | ---------- | ----------- | ---- |
+| POST | `/{joinCode}/join` | — | Requires IN_PROGRESS (409) + not locked (409). Waiting room off → JOINED + `media` credentials; on → WAITING, `media: null`. LEFT/DECLINED rejoin in place (`joinCount++`); REMOVED/DENIED always route to WAITING. → `MyMeetingStatusDTO` | JWT |
+| GET | `/{joinCode}/me` | — | The lobby/presence polling channel (mutates nothing); `media` present iff caller JOINED and meeting IN_PROGRESS | JWT |
+| POST | `/{joinCode}/leave` | — | Self-leave: idempotent JOINED→LEFT | JWT |
+| GET | `/{joinCode}/lobby` | — | WAITING list — HOST/COHOST only | JWT |
+| POST | `/{joinCode}/lobby/{userId}/admit` | — | HOST/COHOST: WAITING→JOINED tx (`admittedBy`, `joinCount++`, `muted = muteOnEntry OR prior`); client picks up credentials on next `/me` poll | JWT |
+| POST | `/{joinCode}/lobby/{userId}/deny` | — | HOST/COHOST: WAITING→DENIED (re-request allowed → WAITING) | JWT |
+| GET | `/{joinCode}/roster` | — | JOINED list; caller must be JOINED or HOST/COHOST | JWT |
+| PATCH | `/{joinCode}/participants/me/mute` | body: `{muted}` | Self-mute persist (client mutes at the bridge first for latency; this survives rejoin) | JWT |
+| PATCH | `/{joinCode}/participants/{userId}/mute` | body: `{muted}` | HOST/COHOST (host cannot be muted by someone else): **AudioBridge admin mute first**, then DB | JWT |
+| DELETE | `/{joinCode}/participants/{userId}` | — | HOST/COHOST (not HOST target; COHOST cannot remove COHOST): REMOVED tx → LiveKit remove+revoke → AudioBridge kick | JWT |
+| PATCH | `/{joinCode}/lock` | body: `{locked}` | HOST only; pure DB flag — the token gate enforces | JWT |
+| PATCH | `/{joinCode}/participants/{userId}/role` | body: `{role: COHOST\|PARTICIPANT}` | HOST only; HOST role immutable both ways (409) | JWT |
+
+### Meeting chat — `/meetings/{joinCode}/chat` (JWT)
+
+| Method | Endpoint | Parameters | Description | Auth |
+| ------ | -------- | ---------- | ----------- | ---- |
+| GET | `/{joinCode}/chat` | `page`, `size` | Paged visible messages, fixed sort `sentAt DESC, id DESC`; any past-or-present participant (viewable after end) | JWT |
+| POST | `/{joinCode}/chat` | body: `{content}` (≤2000) | Requires meeting IN_PROGRESS and sender JOINED (409); 201 `ChatMessageDTO` | JWT |
+| DELETE | `/{joinCode}/chat/{id}` | — | Soft delete, author or HOST only; idempotent | JWT |
+
+### LiveKit webhooks — `/webhooks/livekit`
+
+| Method | Endpoint | Parameters | Description | Auth |
+| ------ | -------- | ---------- | ----------- | ---- |
+| POST | `/webhooks/livekit` | raw JSON body + `Authorization: <signed JWT>` | `permitAll` in the chain; the real gate is in-endpoint `WebhookReceiver` (SDK) verifying signature + body sha256 — bad signature → 401. `participant_left` → idempotent JOINED→LEFT (identity = users.id); `participant_joined`/`room_finished` logged only (DB wins). Always answers 200 fast (non-2xx triggers LiveKit retries) | LiveKit signature |
 
 ### Authentication — `/auth`
 
