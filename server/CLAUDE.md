@@ -18,4 +18,4 @@ Detailed guidance is split into topic-specific rule files in `.claude/rules/`:
 - `signup-defaults.md` — signup defaults (BASIC AccountLevel, `ACC-<uuid>`, ROLE_ADMIN)
 - `email-credentials.md` — Gmail SMTP credentials location
 
-Also in `docs/`: `meeting-database-design.md` (meeting domain schema — ERD, table specs, state machines, consistency rules) and `websocket.md` (notification push). `redis.md`/`redisson-bloom-filter.md` describe the sibling assetManager project, not this one.
+Also in `docs/`: `meeting-database-design.md` (meeting domain schema — ERD, table specs, state machines, consistency rules), `meeting-media-architecture.md` (media-plane design + technology recommendation — SFU video via LiveKit, MCU audio via Janus AudioBridge, coturn; control-plane flows mapped to the DB; mediasoup alternative; design only, nothing implemented), and `websocket.md` (notification push). `redis.md`/`redisson-bloom-filter.md` describe the sibling assetManager project, not this one.
