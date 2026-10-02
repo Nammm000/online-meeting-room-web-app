@@ -1,0 +1,28 @@
+# LiveKit dev configuration — mounted read-only at /etc/livekit/livekit.yaml.
+# The devkey secret MUST equal app.livekit.api-secret in application.properties.
+# Full reference: https://github.com/livekit/livekit/blob/master/config-sample.yaml
+port: 7880
+
+keys:
+  devkey: "devlksecret-8c2f41a9d6e03b5741cafeb2d90863"
+
+rtc:
+  # Narrowed from the 50000-60000 default; must match the published UDP range
+  # in docker-compose.yml (macOS Docker Desktop handles smaller ranges better).
+  port_range_start: 50100
+  port_range_end: 50200
+  tcp_port: 7881 # not published in dev (UDP-only ICE); publish if a network blocks UDP
+  use_external_ip: false # macOS/LAN dev; true only for cloud hosts behind 1:1 NAT
+
+# coturn owns TURN on 3478 — LiveKit's embedded TURN stays off.
+turn:
+  enabled: false
+
+# Signed webhooks to the Spring control plane. api_key selects WHICH key signs
+# the JWT (required — without it no webhook is signed). host.docker.internal
+# resolves to the host on Docker Desktop (macOS/Windows); on Linux add
+# extra_hosts: ["host.docker.internal:host-gateway"] to the livekit service.
+webhook:
+  api_key: devkey
+  urls:
+    - http://host.docker.internal:8083/webhooks/livekit

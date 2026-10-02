@@ -1,0 +1,13 @@
+/* AudioBridge plugin override — mounted at /etc/janus.d (whole-file
+ * replacement of the stock /opt/janus/etc/janus/janus.plugin.audiobridge.jcfg).
+ * admin_key gates room creation and MUST equal app.janus.admin-key in
+ * application.properties. Per-room secret/pin are derived per meeting by the
+ * Spring control plane (RoomSecretDeriver) and passed in the API calls.
+ * No static rooms: every room is created via the API at meeting start. */
+general: {
+	admin_key = "devjanusadminkey"
+	/* Must match the published UDP range in docker-compose.yml */
+	rtp_port_range = "51000-51100"
+	/* talking events — feeds the future active-speaker UI */
+	events = true
+}

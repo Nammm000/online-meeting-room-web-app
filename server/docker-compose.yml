@@ -50,6 +50,79 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Media plane (see docs/meeting-media-architecture.md) ──────────────────
+
+  # Video SFU. 7880 = HTTP/WS signaling + twirp API; 50100-50200/udp = RTC.
+  livekit:
+    image: livekit/livekit-server:v1.13.7
+    container_name: myrooms-livekit
+    restart: always
+    command: ["--config", "/etc/livekit/livekit.yaml"]
+    ports:
+      - "7880:7880/tcp"
+      - "50100-50200:50100-50200/udp"
+    volumes:
+      - ./docker/livekit/livekit.yaml:/etc/livekit/livekit.yaml:ro
+    # Alpine busybox: wget first, nc fallback.
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://localhost:7880/ 2>/dev/null || nc -z localhost 7880"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Audio MCU (AudioBridge plugin). 8188 = browser WS signaling (NOT 8083!),
+  # 8088 = HTTP API used by the Spring control plane, 51000-51100/udp = RTP.
+  # Built from source via docker/janus/Dockerfile (no official/community image
+  # is current enough); the two jcfg overrides replace the stock configs.
+  # On Linux also add: extra_hosts: ["host.docker.internal:host-gateway"]
+  janus:
+    build:
+      context: ./docker/janus
+    image: myrooms-janus:1.4.2
+    container_name: myrooms-janus
+    restart: always
+    ports:
+      - "8188:8188/tcp"
+      - "8088:8088/tcp"
+      - "51000-51100:51000-51100/udp"
+    volumes:
+      - ./docker/janus/etc/janus.d/janus.plugin.audiobridge.jcfg:/opt/janus/etc/janus/janus.plugin.audiobridge.jcfg:ro
+      - ./docker/janus/etc/janus.d/janus.transport.websockets.jcfg:/opt/janus/etc/janus/janus.transport.websockets.jcfg:ro
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8088/janus/info >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # TURN/STUN relay shared by both media PeerConnections. Set TURN_EXTERNAL_IP
+  # to the host LAN IP for real-device dev (relay is loopback-only otherwise).
+  coturn:
+    image: coturn/coturn:4.18.0-r0
+    container_name: myrooms-coturn
+    restart: always
+    command:
+      - -n
+      - --log-device=stdout
+      - --lt-cred-mech
+      - --fingerprint
+      - --realm=myrooms.local
+      - --static-auth-secret=devturnsecret
+      - --min-port=61000
+      - --max-port=61100
+      - --external-ip=${TURN_EXTERNAL_IP:-127.0.0.1}
+      - --no-cli
+      - --no-tls
+      - --no-dtls
+    ports:
+      - "3478:3478/udp"
+      - "3478:3478/tcp"
+      - "61000-61100:61000-61100/udp"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 3478 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
 volumes:
   postgres_data:
   minio_data:

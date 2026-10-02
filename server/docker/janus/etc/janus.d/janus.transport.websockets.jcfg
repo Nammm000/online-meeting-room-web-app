@@ -1,0 +1,18 @@
+/* WebSocket transport override — mounted at /etc/janus.d (whole-file
+ * replacement of the stock janus.transport.websockets.jcfg).
+ * 8188 is the browser-facing signaling WebSocket; the Angular client of the
+ * audio plane connects here directly and joins AudioBridge rooms with
+ * room id + pin (never the room secret). allow_origin mirrors the Spring
+ * CORS origin (app.client.url); enforce_cors starts permissive and is
+ * tightened after the client integration spike. */
+general: {
+	json = "compact"
+	ws = true
+	ws_port = 8188
+	wss = false
+}
+
+cors: {
+	allow_origin = "http://localhost:4200"
+	enforce_cors = false
+}
