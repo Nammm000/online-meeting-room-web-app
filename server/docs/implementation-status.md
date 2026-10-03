@@ -14,7 +14,6 @@ Status as of 2026-10-03. The media-plane implementation (LiveKit video SFU + Jan
 - **Meeting password is create-time only** — no change/remove/CAPTCHA endpoint; a password set at creation can only be dropped by... nothing yet. Add `PATCH /{joinCode}/password` if ever needed.
 - **Host cannot moderate private messages they cannot see** — PM visibility excludes the host by design; host delete of a PM id 404s (author-only). Accepted trade-off.
 - **`GET /users/{id}/avatar`** — `/images/avatar` is owner-scoped; the roster's avatar-when-no-video tiles need other users' avatars, streamed through Spring (MinIO stays unexposed).
-- **`UserService.deleteUser` cleanup** — still a bare `deleteById` (pre-existing, fails on FK once a user has meeting rows). All repo methods for the fix already exist; recipe in `meeting-database-design.md` §6 (PM recipients/senders already flow through the existing chat cleanup).
 - **`enforce_cors` on the Janus WS transport** is deliberately permissive (`false`) until the browser client spike; tighten to the Angular origin afterwards (`docker/janus/etc/janus.d/janus.transport.websockets.jcfg`).
 - **`MeetingRoomUtils.getResponseEntity`** still emits the misspelled `"messag"` JSON key — the meeting endpoints reuse it as-is for house consistency; a fix would touch every client string parse at once.
 

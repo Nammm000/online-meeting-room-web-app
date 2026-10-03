@@ -47,4 +47,20 @@ public interface MeetingChatMessageRepo extends JpaRepository<MeetingChatMessage
     @Modifying
     @Query("delete from MeetingChatMessage m where m.sender.id = :senderId")
     Integer deleteAllBySenderId(@Param("senderId") Long senderId);
+
+    /**
+     * User-account cleanup: private messages addressed to the deleted user go with the
+     * account. Nulling recipient instead would make them broadcast-visible (visibility
+     * is "recipient IS NULL OR recipient = viewer OR sender = viewer").
+     */
+    @Transactional
+    @Modifying
+    @Query("delete from MeetingChatMessage m where m.recipient.id = :recipientId")
+    Integer deleteAllByRecipientId(@Param("recipientId") Long recipientId);
+
+    /** User-account cleanup: the soft-deleter is gone; the message stays deleted, only the audit ref is dropped. */
+    @Transactional
+    @Modifying
+    @Query("update MeetingChatMessage m set m.deletedBy = null where m.deletedBy.id = :userId")
+    Integer updateDeletedByToNull(@Param("userId") Long userId);
 }

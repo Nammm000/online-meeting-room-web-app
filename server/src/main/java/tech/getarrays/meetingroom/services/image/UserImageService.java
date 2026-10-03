@@ -78,6 +78,25 @@ public class UserImageService {
         return MeetingRoomUtils.getResponseEntity("Avatar deleted successfully", HttpStatus.OK);
     }
 
+    /**
+     * User-account cleanup, called inside the caller's transaction: delete the avatar
+     * row and return its MinIO object key (null when the user has no avatar) so the
+     * caller can best-effort-remove the object after its DB work has flushed.
+     */
+    public String deleteAvatarForUser(Long userId) {
+        UserImage image = userImageRepo.findByUserId(userId).orElse(null);
+        if (image == null) {
+            return null;
+        }
+        userImageRepo.delete(image);
+        return image.getObjectKey();
+    }
+
+    /** Best-effort MinIO removal — never throws (removeObject swallows and logs). */
+    public void removeAvatarObject(String objectKey) {
+        removeObject(objectKey);
+    }
+
     public AvatarData getAvatar() {
         User user = UserUtils.getCurrentUser();
         UserImage image = userImageRepo.findByUserId(user.getId())

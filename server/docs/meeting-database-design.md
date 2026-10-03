@@ -190,14 +190,17 @@ Rejoins (`LEFT/REMOVED → JOINED`) and re-admits are blocked while `meetings.lo
 
 ## 6. User deletion & cleanup
 
-`UserService.deleteUser` is today a bare `userRepo.deleteById(id)` — with FKs that have no `ON DELETE` action, deleting a user with *any* dependent row already fails on the first FK (pre-existing: `refresh_tokens`). The meeting repos are designed so the fix is one small, single-transaction follow-up in `UserService.deleteUser`:
+`UserService.deleteUser` (landed 2026-10-03) is one `@Transactional` method — with FKs that have no `ON DELETE` action, every dependent row must be handled explicitly before `userRepo.delete(user)`. Semantics: **participants become tombstones, everything else the user owned dies with them**:
 
-1. `MeetingChatMessageRepo.deleteAllBySenderId(userId)`
-2. `MeetingParticipantRepo.deleteAllByUserIdAndRoleNot(userId, HOST)` — host rows stay for now
-3. For each meeting the user hosts (rule 5): delete its chat → participants → meeting
-4. `userRepo.deleteById(userId)`
+0. **Placeholder get-or-create** (lazy, no startup runner): `DELETED_USER@gmail.com` — name `DELETED_USER`, phone `0000000000`, `ROLE_USER`, status `"false"`, unusable random BCrypt password, `ACC-<uuid>`, BASIC `AccountLevel` get-or-create (mirrors signup). `saveAndFlush` so the bulk UPDATE below sees the row; creation is `synchronized` (a Postgres unique violation would abort the whole tx). The address is reserved — a real account that registered it first would receive tombstones (accepted dev-app risk).
+1. **Hosted meetings die whole** (rule 5 order): for each `MeetingRepo.findByHostId(userId)` → `deleteAllByMeetingId` chat, then participants, then one `MeetingRepo.deleteAllByHostId`.
+2. **Chat footprint erased**: `deleteAllBySenderId` + `deleteAllByRecipientId` (nulling `recipient_id` would make private messages broadcast-visible — visibility is `recipient IS NULL OR recipient = viewer OR sender = viewer`); `updateDeletedByToNull` (nullable audit ref, message stays soft-deleted).
+3. **Participants become tombstones**: `deletePlaceholderRowsInMeetingsOf(placeholderId, userId)` first — clears `uq_meeting_participants_meeting_user` conflicts by dropping the placeholder's *older* tombstone row per shared meeting, so two deleted users in one meeting still leave exactly one tombstone — then `reassignToPlaceholder` sets `user = placeholder, role = PARTICIPANT, status = LEFT, lastLeftAt = now, speaking = false` (no JOINED/WAITING ghost in roster/lobby, no COHOST authority a tombstone can't exercise; the user's HOST rows are already gone via step 1). `updateAdmittedByToNull` (nullable display metadata — a tombstone can't have admitted anyone).
+4. **Placeholder self-delete** (the account itself is deletable): its accumulated tombstone rows are hard-deleted (`deleteAllByUserId`) instead of reassigned — they cannot point at themselves.
+5. **Owned rows**: `refresh_tokens` (`RefreshTokenService.deleteAllByUserId`), `user_pdf_files` + avatar row (bulk delete via `UserPdfFileService.deleteAllForUser` / `UserImageService.deleteAvatarForUser`, which return the MinIO object keys).
+6. `userRepo.delete(user)` + `flush()` — FK failures surface **before** the best-effort MinIO object removals that follow (an orphaned object is recoverable, a row pointing at a missing object is not).
 
-The repo methods exist; the service wiring is deliberately **not** part of this schema deliverable and must land before admin user deletion is exercised with meeting data present.
+`MeetingParticipantRepo.deleteAllByUserIdAndRoleNot` was removed with this change — its "HOST rows stay behind" contract is superseded by hosted-meeting deletion running first. Deleting the host of an IN_PROGRESS meeting does not tear down the live media rooms (LiveKit `emptyTimeout` backstops); wiring media teardown into account deletion is a possible follow-up.
 
 ## 7. Indexes & query patterns
 

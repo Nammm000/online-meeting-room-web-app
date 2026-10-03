@@ -113,6 +113,24 @@ public class UserPdfFileService {
         return MeetingRoomUtils.getResponseEntity("PDF file deleted successfully", HttpStatus.OK);
     }
 
+    /**
+     * User-account cleanup, called inside the caller's transaction: hard-delete every
+     * PDF row of the user in one bulk statement and return the MinIO object keys so
+     * the caller can best-effort-remove the objects after its DB work has flushed.
+     */
+    public List<String> deleteAllForUser(Long userId) {
+        List<UserPdfFile> files = userPdfFileRepo.findByUserId(userId);
+        if (!files.isEmpty()) {
+            userPdfFileRepo.deleteAllInBatch(files);
+        }
+        return files.stream().map(UserPdfFile::getObjectKey).toList();
+    }
+
+    /** Best-effort MinIO removal of many objects — never throws (removeObject swallows and logs). */
+    public void removeObjects(List<String> objectKeys) {
+        objectKeys.forEach(this::removeObject);
+    }
+
     public record PdfData(byte[] data, String fileName) {
     }
 

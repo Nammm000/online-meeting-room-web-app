@@ -23,6 +23,9 @@ public interface MeetingRepo extends JpaRepository<Meeting, Long> {
 
     Page<Meeting> findByHostId(@Param("hostId") Long hostId, Pageable pageable);
 
+    /** User-account cleanup: all meetings the user hosts (any status), for ordered chat→participants deletion. */
+    List<Meeting> findByHostId(@Param("hostId") Long hostId);
+
     List<Meeting> findByHostIdAndStatusIn(@Param("hostId") Long hostId,
                                           @Param("statuses") Collection<MeetingStatus> statuses);
 

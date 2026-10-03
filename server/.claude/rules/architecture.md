@@ -12,7 +12,7 @@ Cross-cutting pieces:
 - `filters/JwtRequestFilter` — Bearer-token auth (see `security-auth.md`)
 - `filters/RateLimitFilter` + `util/SlidingWindowRateLimiter` — sliding-window rate limiting, 429 + `Retry-After` (see `security-auth.md`)
 - `configuration/WebSecurityConfiguration` — filter chain, CORS (`CorsConfigurationSource` from `app.client.url`), `PasswordEncoder`/`AuthenticationManager` beans
-- `configuration/RedisCacheConfig` — Redis-backed cache manager (Jackson serializer with default typing, randomized 5–10 min TTL, `CacheErrorHandler` that logs and degrades to DB). **Currently vestigial**: nothing is `@Cacheable` — the only cache operation anywhere is a `@CacheEvict(allEntries)` on `UserService.deleteUser` evicting cache names nothing populates. (`docs/redis.md` and `docs/redisson-bloom-filter.md` describe the sibling project's cache/bloom-filter setup, not this codebase.)
+- `configuration/RedisCacheConfig` — Redis-backed cache manager (Jackson serializer with default typing, randomized 5–10 min TTL, `CacheErrorHandler` that logs and degrades to DB). **Currently vestigial**: nothing is `@Cacheable` and no cache operations remain anywhere (the lone `@CacheEvict` on `UserService.deleteUser` was removed with its FK-cleanup rewrite). (`docs/redis.md` and `docs/redisson-bloom-filter.md` describe the sibling project's cache/bloom-filter setup, not this codebase.)
 - `configuration/MinioConfiguration` — `MinioClient` bean + eager bucket bootstrap; the app fails to start if MinIO is unreachable
 - `configuration/RequestSecurityContext` — request-scoped username/role/user holder populated by `JwtRequestFilter` and consumed by `UserUtils`
 - `exception/AllExceptionHandler` (global @ControllerAdvice, see `exception-handling.md`)

@@ -74,7 +74,7 @@ Controllers live in `controllers/` — eight: `AuthenticationController`, `UserC
 | GET    | `/users/current-user` | —                                                       | Returns the caller's own profile as `UserWrapper`; 404 if the user row no longer exists | JWT   |
 | PATCH  | `/users/{id}/status` | path: `id`; body: `{status}`                            | Updates user status (enable/disable); unknown id → 404                                | ADMIN |
 | PATCH  | `/users/{id}/role`   | path: `id`; body: `{role}` (`ROLE_USER` / `ROLE_ADMIN` / `ROLE_CUSTOMER`) | Updates user role. All three enum values are accepted via `valueOf`; the service's 400 message only names the first two | ADMIN |
-| DELETE | `/users/{id}`        | path: `id`                                              | Deletes user                                                                           | ADMIN |
+| DELETE | `/users/{id}`        | path: `id`                                              | Deletes user + all dependent rows in one tx; their non-host participant rows become `DELETED_USER` placeholder tombstones (LEFT/PARTICIPANT), hosted meetings are deleted whole, chat sent/received privately is erased, refresh tokens/pdf/avatar rows + best-effort MinIO objects go; unknown id → 404 | ADMIN |
 
 ### Notifications — `/ws/notifications` (WebSocket, one-way server→client push)
 

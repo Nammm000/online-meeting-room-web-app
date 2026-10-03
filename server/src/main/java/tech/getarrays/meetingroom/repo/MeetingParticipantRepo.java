@@ -53,9 +53,45 @@ public interface MeetingParticipantRepo extends JpaRepository<MeetingParticipant
     @Query("delete from MeetingParticipant p where p.meeting.id = :meetingId")
     Integer deleteAllByMeetingId(@Param("meetingId") Long meetingId);
 
-    /** User-account cleanup: HOST rows are left behind on purpose — their meetings are deleted by host id first. */
+    /**
+     * User-account cleanup: reassign every participant row of the deleted user to the
+     * DELETED_USER placeholder tombstone. The tombstone holds no authority and no
+     * presence: rows land as plain LEFT participants (roster/lobby show only
+     * JOINED/WAITING, so a mid-meeting delete leaves no ghost).
+     */
     @Transactional
     @Modifying
-    @Query("delete from MeetingParticipant p where p.user.id = :userId and p.role <> :role")
-    Integer deleteAllByUserIdAndRoleNot(@Param("userId") Long userId, @Param("role") ParticipantRole role);
+    @Query("update MeetingParticipant p set p.user.id = :placeholderId, p.role = :role, " +
+           "p.status = :status, p.lastLeftAt = :leftAt, p.speaking = false " +
+           "where p.user.id = :userId")
+    Integer reassignToPlaceholder(@Param("placeholderId") Long placeholderId,
+                                  @Param("userId") Long userId,
+                                  @Param("role") ParticipantRole role,
+                                  @Param("status") ParticipantStatus status,
+                                  @Param("leftAt") LocalDateTime leftAt);
+
+    /**
+     * Unique(meeting_id, user_id) conflict clear before {@link #reassignToPlaceholder}:
+     * drop the placeholder's earlier tombstone rows in meetings where the deleted user
+     * also has a row, so the reassign UPDATE cannot violate the constraint. The
+     * just-deleted user's row (fresher state) is the one kept per meeting.
+     */
+    @Transactional
+    @Modifying
+    @Query("delete from MeetingParticipant p where p.user.id = :placeholderId and p.meeting.id in " +
+           "(select p2.meeting.id from MeetingParticipant p2 where p2.user.id = :userId)")
+    Integer deletePlaceholderRowsInMeetingsOf(@Param("placeholderId") Long placeholderId,
+                                              @Param("userId") Long userId);
+
+    /** User deletion: admittedBy is nullable display metadata — null it, don't tombstone it. */
+    @Transactional
+    @Modifying
+    @Query("update MeetingParticipant p set p.admittedBy = null where p.admittedBy.id = :userId")
+    Integer updateAdmittedByToNull(@Param("userId") Long userId);
+
+    /** Placeholder self-delete: its accumulated tombstone rows are hard-deleted (cannot be reassigned to itself). */
+    @Transactional
+    @Modifying
+    @Query("delete from MeetingParticipant p where p.user.id = :userId")
+    Integer deleteAllByUserId(@Param("userId") Long userId);
 }
