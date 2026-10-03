@@ -42,6 +42,11 @@ public class MeetingChatMessage {
     @JoinColumn(name = "sender_id", nullable = false)
     private User sender;
 
+    /** Null = broadcast to the whole meeting; otherwise only sender and recipient ever see the row. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "recipient_id")
+    private User recipient;
+
     @Column(nullable = false, length = 2000)
     private String content;
 

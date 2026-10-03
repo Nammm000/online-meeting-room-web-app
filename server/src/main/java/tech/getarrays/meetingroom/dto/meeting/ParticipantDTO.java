@@ -15,9 +15,11 @@ public record ParticipantDTO(
         ParticipantRole role,
         ParticipantStatus status,
         boolean muted,
+        boolean speaking,
         int joinCount,
         LocalDateTime firstJoinedAt,
         LocalDateTime lastJoinedAt,
         LocalDateTime lastLeftAt,
+        LocalDateTime lastSpeakingAt,
         String admittedByName) {
 }

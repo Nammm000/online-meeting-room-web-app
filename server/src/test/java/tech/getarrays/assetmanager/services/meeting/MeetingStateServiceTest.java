@@ -4,6 +4,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import tech.getarrays.meetingroom.dto.meeting.CreateMeetingRequest;
 import tech.getarrays.meetingroom.exception.ConflictException;
 import tech.getarrays.meetingroom.models.User;
@@ -40,7 +41,8 @@ class MeetingStateServiceTest {
     void setUp() {
         meetingRepo = mock(MeetingRepo.class);
         participantRepo = mock(MeetingParticipantRepo.class);
-        stateService = new MeetingStateService(meetingRepo, participantRepo, new JoinCodeGenerator());
+        stateService = new MeetingStateService(meetingRepo, participantRepo, new JoinCodeGenerator(),
+                new BCryptPasswordEncoder());
         when(meetingRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
         when(participantRepo.save(any())).thenAnswer(inv -> inv.getArgument(0));
     }
@@ -64,7 +66,7 @@ class MeetingStateServiceTest {
     @Test
     void instantMeetingIsBornInProgressWithHostJoinedAndMuteOnEntryApplied() {
         Meeting created = stateService.createMeetingAndHost(host, new CreateMeetingRequest(
-                "T", null, MeetingType.INSTANT, null, null, false, true));
+                "T", null, MeetingType.INSTANT, null, null, false, true, null));
 
         assertThat(created.getStatus()).isEqualTo(MeetingStatus.IN_PROGRESS);
 
@@ -81,7 +83,7 @@ class MeetingStateServiceTest {
     void scheduledMeetingIsBornScheduledWithHostNotYetJoined() {
         Meeting created = stateService.createMeetingAndHost(host, new CreateMeetingRequest(
                 "T", null, MeetingType.SCHEDULED, LocalDateTime.now().plusHours(1),
-                LocalDateTime.now().plusHours(2), false, false));
+                LocalDateTime.now().plusHours(2), false, false, null));
 
         assertThat(created.getStatus()).isEqualTo(MeetingStatus.SCHEDULED);
 
@@ -99,10 +101,27 @@ class MeetingStateServiceTest {
                 .thenAnswer(inv -> inv.getArgument(0));
 
         Meeting created = stateService.createMeetingAndHost(host, new CreateMeetingRequest(
-                "T", null, MeetingType.INSTANT, null, null, false, false));
+                "T", null, MeetingType.INSTANT, null, null, false, false, null));
 
         verify(meetingRepo, times(2)).save(any(Meeting.class));
         assertThat(created.getJoinCode()).hasSize(10);
+    }
+
+    @Test
+    void meetingPasswordIsStoredAsABcryptHashOfTheTrimmedValue() {
+        Meeting created = stateService.createMeetingAndHost(host, new CreateMeetingRequest(
+                "T", null, MeetingType.INSTANT, null, null, false, false, "  secret  "));
+
+        assertThat(created.getPasswordHash()).isNotBlank().isNotEqualTo("secret");
+        assertThat(new BCryptPasswordEncoder().matches("secret", created.getPasswordHash())).isTrue();
+    }
+
+    @Test
+    void blankMeetingPasswordStoresNoHash() {
+        Meeting created = stateService.createMeetingAndHost(host, new CreateMeetingRequest(
+                "T", null, MeetingType.INSTANT, null, null, false, false, "   "));
+
+        assertThat(created.getPasswordHash()).isNull();
     }
 
     // ── join / rejoin state machine ──────────────────────────────────────────
@@ -222,5 +241,68 @@ class MeetingStateServiceTest {
         stateService.markLeftIfJoined(1L, 9L);
 
         verify(participantRepo, never()).save(any(MeetingParticipant.class));
+    }
+
+    // ── speaking flag ────────────────────────────────────────────────────────
+
+    @Test
+    void setSpeakingStampsLastSpeakingAtOnTheRisingEdgeOnly() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant participant = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(participant));
+
+        stateService.setSpeaking(1L, 9L, true);
+        assertThat(participant.isSpeaking()).isTrue();
+        assertThat(participant.getLastSpeakingAt()).isNotNull();
+        LocalDateTime stamp = participant.getLastSpeakingAt();
+
+        stateService.setSpeaking(1L, 9L, false);
+        assertThat(participant.isSpeaking()).isFalse();
+        assertThat(participant.getLastSpeakingAt()).as("kept while silent — it only orders active speakers")
+                .isEqualTo(stamp);
+    }
+
+    @Test
+    void mutingClearsTheSpeakingFlag() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant participant = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        participant.setSpeaking(true);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(participant));
+
+        stateService.setMuted(1L, 9L, true);
+
+        assertThat(participant.isMuted()).isTrue();
+        assertThat(participant.isSpeaking()).isFalse();
+    }
+
+    @Test
+    void rejoiningResetsTheSpeakingFlag() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant left = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.LEFT);
+        left.setJoinCount(1);
+        left.setSpeaking(true);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(left));
+
+        MeetingParticipant rejoined = stateService.joinParticipant(m, User.builder().id(9L).build());
+
+        assertThat(rejoined.getStatus()).isEqualTo(ParticipantStatus.JOINED);
+        assertThat(rejoined.isSpeaking()).isFalse();
+    }
+
+    @Test
+    void markLeftClearsTheSpeakingFlag() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant joined = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        joined.setSpeaking(true);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(joined));
+
+        stateService.markLeftIfJoined(1L, 9L);
+
+        assertThat(joined.getStatus()).isEqualTo(ParticipantStatus.LEFT);
+        assertThat(joined.isSpeaking()).isFalse();
     }
 }

@@ -11,6 +11,18 @@ export interface ConfirmationRequest {
   onConfirm: () => void;
 }
 
+/**
+ * A pending join-password prompt (the ConfirmationRequest pattern: the
+ * request doubles as visibility state). The room service owns the HTTP —
+ * the modal just hands the entered password back.
+ */
+export interface JoinPasswordRequest {
+  meetingTitle?: string;
+  /** Server message from a rejected attempt ("Incorrect meeting password"). */
+  errorMessage?: string;
+  onSubmit: (password: string) => void;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ModalService {
   private loginVisible = signal(false);
@@ -19,6 +31,7 @@ export class ModalService {
   private createMeetingVisible = signal(false);
   private joinMeetingVisible = signal(false);
   private readonly _confirmation = signal<ConfirmationRequest | null>(null);
+  private readonly _joinPassword = signal<JoinPasswordRequest | null>(null);
 
   // The create modal reports the 201 back to whoever opened it (the
   // ConfirmationRequest.onConfirm precedent — modals never navigate on their
@@ -32,6 +45,7 @@ export class ModalService {
   readonly isCreateMeetingVisible = this.createMeetingVisible.asReadonly();
   readonly isJoinMeetingVisible = this.joinMeetingVisible.asReadonly();
   readonly confirmation = this._confirmation.asReadonly();
+  readonly joinPassword = this._joinPassword.asReadonly();
 
   // Methods for header to call
   openLogin(): void {
@@ -92,5 +106,14 @@ export class ModalService {
 
   closeConfirmation(): void {
     this._confirmation.set(null);
+  }
+
+  // Join-password prompt (password-protected meetings; opened by MeetingRoomService)
+  openJoinPassword(request: JoinPasswordRequest): void {
+    this._joinPassword.set({ ...request });
+  }
+
+  closeJoinPassword(): void {
+    this._joinPassword.set(null);
   }
 }

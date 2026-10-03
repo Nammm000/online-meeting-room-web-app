@@ -4,6 +4,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import tech.getarrays.meetingroom.dto.PagedResponseDTO;
 import tech.getarrays.meetingroom.dto.meeting.CreateMeetingRequest;
@@ -41,6 +42,7 @@ public class MeetingService {
     private final LiveKitMediaService liveKitMediaService;
     private final JanusAudioBridgeClient janusAudioBridgeClient;
     private final MediaTokenService mediaTokenService;
+    private final PasswordEncoder passwordEncoder;
 
     public MeetingService(MeetingRepo meetingRepo,
                           MeetingParticipantRepo participantRepo,
@@ -48,7 +50,8 @@ public class MeetingService {
                           MeetingStateService stateService,
                           LiveKitMediaService liveKitMediaService,
                           JanusAudioBridgeClient janusAudioBridgeClient,
-                          MediaTokenService mediaTokenService) {
+                          MediaTokenService mediaTokenService,
+                          PasswordEncoder passwordEncoder) {
         this.meetingRepo = meetingRepo;
         this.participantRepo = participantRepo;
         this.authority = authority;
@@ -56,6 +59,7 @@ public class MeetingService {
         this.liveKitMediaService = liveKitMediaService;
         this.janusAudioBridgeClient = janusAudioBridgeClient;
         this.mediaTokenService = mediaTokenService;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public MeetingDTO create(CreateMeetingRequest request) {
@@ -132,6 +136,12 @@ public class MeetingService {
         } else if (request.scheduledStartAt() != null || request.scheduledEndAt() != null) {
             throw new IllegalArgumentException("Instant meetings cannot carry a schedule");
         }
+        if (request.password() != null && !request.password().isBlank()) {
+            int length = request.password().trim().length();
+            if (length < 4 || length > 100) {
+                throw new IllegalArgumentException("Meeting password must be 4-100 characters");
+            }
+        }
     }
 
     /** Host media in the create/start response — only while host JOINED + IN_PROGRESS. */
@@ -145,7 +155,8 @@ public class MeetingService {
         return new MeetingDTO(meeting.getId(), meeting.getJoinCode(), meeting.getTitle(), meeting.getDescription(),
                 meeting.getType(), meeting.getStatus(), meeting.getScheduledStartAt(), meeting.getScheduledEndAt(),
                 meeting.getActualStartAt(), meeting.getEndedAt(), meeting.getCreatedAt(), meeting.isWaitingRoomEnabled(),
-                meeting.isMuteOnEntry(), meeting.isLocked(), meeting.getHost().getId(), meeting.getHost().getName(),
+                meeting.isMuteOnEntry(), meeting.isLocked(), meeting.getPasswordHash() != null,
+                meeting.getHost().getId(), meeting.getHost().getName(),
                 Objects.requireNonNull(media, "host media expected after create/start"));
     }
 
@@ -153,7 +164,7 @@ public class MeetingService {
         return new MeetingDTO(meeting.getId(), meeting.getJoinCode(), meeting.getTitle(), meeting.getDescription(),
                 meeting.getType(), meeting.getStatus(), meeting.getScheduledStartAt(), meeting.getScheduledEndAt(),
                 meeting.getActualStartAt(), meeting.getEndedAt(), meeting.getCreatedAt(), meeting.isWaitingRoomEnabled(),
-                meeting.isMuteOnEntry(), meeting.isLocked(), meeting.getHost().getId(), meeting.getHost().getName(),
-                null);
+                meeting.isMuteOnEntry(), meeting.isLocked(), meeting.getPasswordHash() != null,
+                meeting.getHost().getId(), meeting.getHost().getName(), null);
     }
 }

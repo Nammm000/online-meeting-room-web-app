@@ -22,6 +22,7 @@ const meetingFixture = (status: 'SCHEDULED' | 'IN_PROGRESS') => ({
   waitingRoomEnabled: false,
   muteOnEntry: false,
   locked: false,
+  hasPassword: false,
   hostId: 1,
   hostName: 'Alice',
   media: null,
@@ -94,8 +95,27 @@ describe('CreateMeeting', () => {
       scheduledEndAt: null,
       waitingRoomEnabled: true,
       muteOnEntry: false,
+      password: null,
     });
     request.flush(meetingFixture('IN_PROGRESS'));
+  });
+
+  it('sends the trimmed password and null when left blank', () => {
+    component.isVisible.set(true);
+    component.title.set('Standup');
+    component.password.set('  pw  ');
+    submit();
+    const withPassword = httpMock.expectOne((r) => r.method === 'POST' && r.url === BASE_URL);
+    expect(withPassword.request.body).toEqual(expect.objectContaining({ password: 'pw' }));
+    withPassword.flush(meetingFixture('IN_PROGRESS'));
+
+    // The first 201 closed and reset the form — start a second one blank.
+    component.isVisible.set(true);
+    component.title.set('Standup 2');
+    submit();
+    const withoutPassword = httpMock.expectOne((r) => r.method === 'POST' && r.url === BASE_URL);
+    expect(withoutPassword.request.body).toEqual(expect.objectContaining({ password: null }));
+    withoutPassword.flush(meetingFixture('IN_PROGRESS'));
   });
 
   it('surfaces a 400 validation message from the backend', () => {

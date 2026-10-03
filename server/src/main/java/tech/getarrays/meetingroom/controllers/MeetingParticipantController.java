@@ -10,11 +10,13 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import tech.getarrays.meetingroom.dto.meeting.JoinRequest;
 import tech.getarrays.meetingroom.dto.meeting.LockRequest;
 import tech.getarrays.meetingroom.dto.meeting.MuteRequest;
 import tech.getarrays.meetingroom.dto.meeting.MyMeetingStatusDTO;
 import tech.getarrays.meetingroom.dto.meeting.ParticipantDTO;
 import tech.getarrays.meetingroom.dto.meeting.RoleRequest;
+import tech.getarrays.meetingroom.dto.meeting.SpeakingRequest;
 import tech.getarrays.meetingroom.models.meeting.MeetingParticipant.ParticipantRole;
 import tech.getarrays.meetingroom.services.meeting.MeetingParticipantService;
 import tech.getarrays.meetingroom.util.MeetingRoomUtils;
@@ -36,8 +38,9 @@ public class MeetingParticipantController {
     }
 
     @PostMapping("/join")
-    public ResponseEntity<MyMeetingStatusDTO> join(@PathVariable String joinCode) {
-        return ResponseEntity.ok(participantService.join(joinCode));
+    public ResponseEntity<MyMeetingStatusDTO> join(@PathVariable String joinCode,
+                                                   @RequestBody(required = false) JoinRequest request) {
+        return ResponseEntity.ok(participantService.join(joinCode, request == null ? null : request.password()));
     }
 
     @GetMapping("/me")
@@ -77,6 +80,12 @@ public class MeetingParticipantController {
     public ResponseEntity<String> selfMute(@PathVariable String joinCode, @RequestBody MuteRequest request) {
         participantService.selfMute(joinCode, Boolean.TRUE.equals(request.muted()));
         return MeetingRoomUtils.getResponseEntity("Mute state updated", HttpStatus.OK);
+    }
+
+    @PatchMapping("/participants/me/speaking")
+    public ResponseEntity<String> selfSpeaking(@PathVariable String joinCode, @RequestBody SpeakingRequest request) {
+        participantService.selfSpeaking(joinCode, Boolean.TRUE.equals(request.speaking()));
+        return MeetingRoomUtils.getResponseEntity("Speaking state updated", HttpStatus.OK);
     }
 
     @PatchMapping("/participants/{userId}/mute")

@@ -3,6 +3,8 @@ package tech.getarrays.meetingroom.services.meeting;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import tech.getarrays.meetingroom.configuration.RequestSecurityContext;
 import tech.getarrays.meetingroom.dto.meeting.MyMeetingStatusDTO;
 import tech.getarrays.meetingroom.exception.ConflictException;
@@ -21,6 +23,7 @@ import tech.getarrays.meetingroom.services.media.LiveKitMediaService;
 import tech.getarrays.meetingroom.services.media.MediaTokenService;
 import tech.getarrays.meetingroom.util.UserUtils;
 
+import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -58,7 +61,7 @@ class MeetingParticipantServiceTest {
         liveKitMediaService = mock(LiveKitMediaService.class);
         janusAudioBridgeClient = mock(JanusAudioBridgeClient.class);
         service = new MeetingParticipantService(participantRepo, authority, stateService,
-                mediaTokenService, liveKitMediaService, janusAudioBridgeClient);
+                mediaTokenService, liveKitMediaService, janusAudioBridgeClient, new BCryptPasswordEncoder());
 
         // Seed UserUtils' statics so getCurrentUser() resolves users in this test JVM;
         // tests re-point the current user via setCurrentUser(...)
@@ -87,11 +90,91 @@ class MeetingParticipantServiceTest {
         when(stateService.joinParticipant(meeting, host)).thenReturn(row(host, ParticipantRole.HOST,
                 ParticipantStatus.JOINED));
 
-        service.join("ABCD234567");
+        service.join("ABCD234567", null);
 
         verify(authority).requireStatus(meeting, MeetingStatus.IN_PROGRESS);
         verify(authority).requireNotLocked(meeting);
         verify(stateService).joinParticipant(meeting, host);
+    }
+
+    // ── join password gate ───────────────────────────────────────────────────
+
+    @Test
+    void passwordProtectedMeetingRejectsMissingOrWrongPasswords() {
+        meeting.setPasswordHash(new BCryptPasswordEncoder().encode("pw"));
+        setCurrentUser(guest);
+
+        assertThatThrownBy(() -> service.join("ABCD234567", null))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage("This meeting requires a password");
+        assertThatThrownBy(() -> service.join("ABCD234567", "wrong"))
+                .isInstanceOf(AccessDeniedException.class)
+                .hasMessage("Incorrect meeting password");
+        verify(stateService, never()).joinParticipant(any(), any());
+    }
+
+    @Test
+    void passwordProtectedMeetingAcceptsTheCorrectPassword() {
+        meeting.setPasswordHash(new BCryptPasswordEncoder().encode("pw"));
+        setCurrentUser(guest);
+        when(stateService.joinParticipant(meeting, guest))
+                .thenReturn(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED));
+
+        service.join("ABCD234567", "pw");
+
+        verify(stateService).joinParticipant(meeting, guest);
+    }
+
+    @Test
+    void theHostAccountIsExemptFromTheJoinPassword() {
+        meeting.setPasswordHash(new BCryptPasswordEncoder().encode("pw"));
+        when(stateService.joinParticipant(meeting, host)).thenReturn(row(host, ParticipantRole.HOST,
+                ParticipantStatus.JOINED));
+
+        service.join("ABCD234567", null);
+
+        verify(stateService).joinParticipant(meeting, host);
+    }
+
+    // ── speaking ─────────────────────────────────────────────────────────────
+
+    @Test
+    void selfSpeakingRoutesIntoTheStateTransition() {
+        setCurrentUser(guest);
+        when(authority.requireJoined(meeting, guest))
+                .thenReturn(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED));
+
+        service.selfSpeaking("ABCD234567", true);
+
+        verify(stateService).setSpeaking(1L, 9L, true);
+    }
+
+    @Test
+    void selfSpeakingIsClampedToFalseWhileMuted() {
+        setCurrentUser(guest);
+        MeetingParticipant muted = row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        muted.setMuted(true);
+        when(authority.requireJoined(meeting, guest)).thenReturn(muted);
+
+        service.selfSpeaking("ABCD234567", true);
+
+        verify(stateService).setSpeaking(1L, 9L, false);
+    }
+
+    @Test
+    void statusDtosCarryTheSpeakingAndPasswordFields() {
+        meeting.setPasswordHash("hash");
+        MeetingParticipant speaking = row(host, ParticipantRole.HOST, ParticipantStatus.JOINED);
+        LocalDateTime stamp = LocalDateTime.now().minusSeconds(5);
+        speaking.setSpeaking(true);
+        speaking.setLastSpeakingAt(stamp);
+        when(authority.callerParticipant(meeting, host)).thenReturn(Optional.of(speaking));
+
+        MyMeetingStatusDTO status = service.myStatus("ABCD234567");
+
+        assertThat(status.meeting().hasPassword()).isTrue();
+        assertThat(status.participant().speaking()).isTrue();
+        assertThat(status.participant().lastSpeakingAt()).isEqualTo(stamp);
     }
 
     @Test

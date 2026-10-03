@@ -24,15 +24,16 @@ public record MeetingDTO(
         boolean waitingRoomEnabled,
         boolean muteOnEntry,
         boolean locked,
+        boolean hasPassword,
         Long hostId,
         String hostName,
         MediaCredentialsDTO media) {
 
     public static MeetingDTO summaryOf(Long id, String joinCode, String title, MeetingType type,
-                                       MeetingStatus status, boolean locked, boolean waitingRoomEnabled,
-                                       boolean muteOnEntry, Long hostId, String hostName,
-                                       LocalDateTime createdAt) {
+                                       MeetingStatus status, boolean locked, boolean hasPassword,
+                                       boolean waitingRoomEnabled, boolean muteOnEntry, Long hostId,
+                                       String hostName, LocalDateTime createdAt) {
         return new MeetingDTO(id, joinCode, title, null, type, status, null, null, null, null,
-                createdAt, waitingRoomEnabled, muteOnEntry, locked, hostId, hostName, null);
+                createdAt, waitingRoomEnabled, muteOnEntry, locked, hasPassword, hostId, hostName, null);
     }
 }

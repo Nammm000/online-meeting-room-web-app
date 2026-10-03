@@ -33,12 +33,16 @@ describe('MeetingChatService', () => {
     req.flush({ content: [], page: 0, size: 30, totalElements: 0, totalPages: 0, first: true, last: true });
   });
 
-  it('sends a message with {content}', () => {
+  it('sends a broadcast with a null recipient, and a DM with the recipientUserId', () => {
     service.send(CODE, 'hello').subscribe();
+    const broadcast = expectOne('POST', BASE_URL);
+    expect(broadcast.request.body).toEqual({ content: 'hello', recipientUserId: null });
+    broadcast.flush({ id: 1, content: 'hello' });
 
-    const req = expectOne('POST', BASE_URL);
-    expect(req.request.body).toEqual({ content: 'hello' });
-    req.flush({ id: 1, content: 'hello' });
+    service.send(CODE, 'psst', 7).subscribe();
+    const private_ = expectOne('POST', BASE_URL);
+    expect(private_.request.body).toEqual({ content: 'psst', recipientUserId: 7 });
+    private_.flush({ id: 2, content: 'psst' });
   });
 
   it('deletes a message by its id', () => {

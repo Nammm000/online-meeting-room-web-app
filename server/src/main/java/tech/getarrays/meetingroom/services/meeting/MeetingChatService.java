@@ -15,6 +15,8 @@ import tech.getarrays.meetingroom.models.meeting.Meeting.MeetingStatus;
 import tech.getarrays.meetingroom.models.meeting.MeetingChatMessage;
 import tech.getarrays.meetingroom.models.meeting.MeetingParticipant.ParticipantRole;
 import tech.getarrays.meetingroom.repo.MeetingChatMessageRepo;
+import tech.getarrays.meetingroom.repo.MeetingParticipantRepo;
+import tech.getarrays.meetingroom.repo.UserRepo;
 import tech.getarrays.meetingroom.util.UserUtils;
 
 import java.time.LocalDateTime;
@@ -35,22 +37,29 @@ public class MeetingChatService {
 
     private final MeetingChatMessageRepo chatRepo;
     private final MeetingAuthority authority;
+    private final MeetingParticipantRepo participantRepo;
+    private final UserRepo userRepo;
 
-    public MeetingChatService(MeetingChatMessageRepo chatRepo, MeetingAuthority authority) {
+    public MeetingChatService(MeetingChatMessageRepo chatRepo, MeetingAuthority authority,
+                              MeetingParticipantRepo participantRepo, UserRepo userRepo) {
         this.chatRepo = chatRepo;
         this.authority = authority;
+        this.participantRepo = participantRepo;
+        this.userRepo = userRepo;
     }
 
+    /** Page of messages visible to the caller: broadcasts plus their own private traffic. */
     public PagedResponseDTO<ChatMessageDTO> getMessages(String joinCode, int page, int size) {
         Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
-        authority.requireAnyParticipant(meeting, UserUtils.getCurrentUser());
-        Page<MeetingChatMessage> messages = chatRepo.findByMeetingIdAndDeletedAtIsNull(meeting.getId(),
+        User caller = UserUtils.getCurrentUser();
+        authority.requireAnyParticipant(meeting, caller);
+        Page<MeetingChatMessage> messages = chatRepo.findVisibleByMeetingAndViewer(meeting.getId(), caller.getId(),
                 PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "sentAt").and(Sort.by(Sort.Direction.DESC, "id"))));
         List<ChatMessageDTO> content = messages.stream().map(this::toDto).toList();
         return PagedResponseDTO.from(new PageImpl<>(content, messages.getPageable(), messages.getTotalElements()));
     }
 
-    public ChatMessageDTO send(String joinCode, String content) {
+    public ChatMessageDTO send(String joinCode, String content, Long recipientUserId) {
         if (content == null || content.isBlank()) {
             throw new IllegalArgumentException("Message content is required");
         }
@@ -61,10 +70,12 @@ public class MeetingChatService {
         authority.requireStatus(meeting, MeetingStatus.IN_PROGRESS);
         User caller = UserUtils.getCurrentUser();
         authority.requireJoined(meeting, caller);
+        User recipient = resolveRecipient(meeting, caller, recipientUserId);
 
         MeetingChatMessage message = MeetingChatMessage.builder()
                 .meeting(meeting)
                 .sender(caller)
+                .recipient(recipient)
                 .content(content)
                 .build();
         return toDto(chatRepo.save(message));
@@ -87,8 +98,30 @@ public class MeetingChatService {
         chatRepo.softDelete(messageId, caller.getId(), LocalDateTime.now());
     }
 
+    /**
+     * Private-message recipient: any past-or-present participant of the meeting
+     * (history is readable after leave/end, so a recipient who just stepped out
+     * still gets the message on rejoin — the client picker only offers JOINED
+     * users, this is just the tolerance window). Payload problems are 400s,
+     * matching the manual-validation house pattern.
+     */
+    private User resolveRecipient(Meeting meeting, User caller, Long recipientUserId) {
+        if (recipientUserId == null) {
+            return null;
+        }
+        if (recipientUserId.equals(caller.getId())) {
+            throw new IllegalArgumentException("Cannot send a private message to yourself");
+        }
+        if (!participantRepo.existsByMeetingIdAndUserId(meeting.getId(), recipientUserId)) {
+            throw new IllegalArgumentException("Recipient is not a participant of this meeting");
+        }
+        return userRepo.findById(recipientUserId).orElseThrow(() -> new NotFoundException("Recipient not found"));
+    }
+
     private ChatMessageDTO toDto(MeetingChatMessage message) {
+        User recipient = message.getRecipient();
         return new ChatMessageDTO(message.getId(), message.getSender().getId(), message.getSender().getName(),
+                recipient == null ? null : recipient.getId(), recipient == null ? null : recipient.getName(),
                 message.getContent(), message.getSentAt());
     }
 }

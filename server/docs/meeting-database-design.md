@@ -80,6 +80,7 @@ Every FK is a plain `REFERENCES ... (id)` with **no `ON DELETE` action** — Hib
 | `waiting_room_enabled` | boolean | no | false | meeting setting |
 | `mute_on_entry` | boolean | no | false | meeting setting |
 | `locked` | boolean | no | false | no new joins/re-admits while true |
+| `password_hash` | varchar(100) | yes | — | BCrypt hash of the optional join password (null = open meeting). Never serialized — `MeetingDTO` exposes only `hasPassword` |
 | `created_at` | timestamp | no | — | `@PrePersist` |
 
 The entity also defaults `status` in `@PrePersist`: instant meetings are born `IN_PROGRESS`, scheduled ones `SCHEDULED`.
@@ -98,6 +99,8 @@ One row per (meeting, user). A user re-entering the meeting reuses the same row 
 | `role` | varchar(20) | no | — | enum `ParticipantRole { HOST, COHOST, PARTICIPANT }` (`role` is unreserved — `users.role` already exists) |
 | `status` | varchar(20) | no | — | enum `ParticipantStatus { WAITING, JOINED, LEFT, REMOVED, DENIED, DECLINED }` — **this is the waiting-room state machine** |
 | `muted` | boolean | no | false | current audio state; persisted so it survives rejoin |
+| `speaking` | boolean | no | false | mic-energy flag from the client's local speech detection; **clamped to false while `muted`** and reset on mute/leave/remove/end/rejoin (rule 8). `@ColumnDefault("false")` is required — `ddl-auto=update` adds NOT NULL columns without a DEFAULT and fails on a non-empty table |
+| `last_speaking_at` | timestamp | yes | — | stamped only on the false→true transition; kept while silent — it sorts simultaneous speakers on the stage |
 | `join_count` | int | no | 0 | incremented on each JOINED transition |
 | `first_joined_at` | timestamp | yes | — | |
 | `last_joined_at` | timestamp | yes | — | |
@@ -114,6 +117,7 @@ One row per (meeting, user). A user re-entering the meeting reuses the same row 
 | `id` | bigserial | no | — | PK |
 | `meeting_id` | bigint | no | — | FK → `meetings(id)` |
 | `sender_id` | bigint | no | — | FK → `users(id)` (registered users only) |
+| `recipient_id` | bigint | yes | — | FK → `users(id)`; **null = broadcast** — otherwise only sender and recipient ever see the row (visibility filter in `MeetingChatMessageRepo.findVisibleByMeetingAndViewer`). No index: the recipient predicate is a residual filter inside the `(meeting_id, sent_at)` scan (precedent: `admitted_by_id`) |
 | `content` | varchar(2000) | no | — | plain text |
 | `message_type` | varchar(20) | no | TEXT | enum `ChatMessageType { TEXT }` — single value today, kept so file-sharing/system messages later are an enum addition + optional attachments table, **not a migration** |
 | `sent_at` | timestamp | no | — | `@PrePersist`; pagination key |
@@ -181,6 +185,8 @@ Rejoins (`LEFT/REMOVED → JOINED`) and re-admits are blocked while `meetings.lo
 4. **Meeting end** is one transaction: `status=ENDED` + `ended_at=now`, then `MeetingParticipantRepo.updateStatusForMeeting(meetingId, JOINED, LEFT, now)` bulk-moves every JOINED participant.
 5. **Meeting deletion** is one transaction in order: `MeetingChatMessageRepo.deleteAllByMeetingId` → `MeetingParticipantRepo.deleteAllByMeetingId` → delete the meeting row.
 6. Waiting-room/mute/lock policy (§3 table) and the single-HOST invariant (§2.2) live in the service layer — the DB cannot express them.
+7. **Join password gate**: when `meetings.password_hash` is set, `join` rejects any caller except the host account without a password matching the hash (403; missing, blank, or wrong all equal). The gate sits in front of the join state machine and covers rejoins.
+8. **Speaking clamp**: `speaking` is client-reported but never trusted past the mute flag — the service forces it false whenever `muted` becomes true, and resets it on every JOINED transition (rejoin/admit), leave/remove, and the bulk JOINED→LEFT of meeting end (`updateStatusForMeeting` sets it in the same statement). Only JOINED rows render, so a stale flag is invisible anyway; the resets are hygiene for reuse of the row.
 
 ## 6. User deletion & cleanup
 

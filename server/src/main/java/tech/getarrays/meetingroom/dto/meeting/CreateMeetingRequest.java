@@ -16,5 +16,6 @@ public record CreateMeetingRequest(
         LocalDateTime scheduledStartAt,
         LocalDateTime scheduledEndAt,
         Boolean waitingRoomEnabled,
-        Boolean muteOnEntry) {
+        Boolean muteOnEntry,
+        String password) {
 }

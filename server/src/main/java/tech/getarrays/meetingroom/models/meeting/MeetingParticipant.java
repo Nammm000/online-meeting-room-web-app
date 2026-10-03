@@ -2,6 +2,7 @@ package tech.getarrays.meetingroom.models.meeting;
 
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.ColumnDefault;
 import tech.getarrays.meetingroom.models.User;
 
 import java.time.LocalDateTime;
@@ -62,6 +63,21 @@ public class MeetingParticipant {
     @Builder.Default
     @Column(nullable = false)
     private boolean muted = false;
+
+    /**
+     * Mic-energy flag reported by the client's local speech detection; clamped
+     * to false while muted (service-enforced). ColumnDefault is required —
+     * ddl-auto=update adds NOT NULL columns without a DEFAULT and would fail
+     * on the non-empty dev table.
+     */
+    @Builder.Default
+    @ColumnDefault("false")
+    @Column(nullable = false)
+    private boolean speaking = false;
+
+    /** Set on the false→true transition; orders simultaneous speakers on the stage. */
+    @Column(name = "last_speaking_at")
+    private LocalDateTime lastSpeakingAt;
 
     @Builder.Default
     @Column(name = "join_count", nullable = false)

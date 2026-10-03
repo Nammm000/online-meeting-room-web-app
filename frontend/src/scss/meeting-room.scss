@@ -183,6 +183,22 @@
     top: 0.5rem;
     right: 0.5rem;
     color: var(--text-muted);
+
+    // Active-speaker feedback: success-colored glyph plus an expanding ring.
+    // The span needs a position context for the ::after to anchor to.
+    &--speaking {
+      color: var(--success-strong);
+
+      &::after {
+        content: '';
+        position: absolute;
+        inset: -0.35rem;
+        border-radius: 9999px;
+        border: 2px solid var(--success-soft-border);
+        animation: speaking-pulse 1.2s ease-out infinite;
+        pointer-events: none;
+      }
+    }
   }
 
   &__placeholder {
@@ -288,6 +304,26 @@
     font-size: 0.9375rem;
     font-weight: 600;
     color: var(--text-primary);
+  }
+}
+
+@keyframes speaking-pulse {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.9;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+// First prefers-reduced-motion guard in the codebase — the pulse ring is
+// decorative, the color feedback stays.
+@media (prefers-reduced-motion: reduce) {
+  .stage-tile__mic--speaking::after {
+    animation: none;
+    opacity: 0.5;
   }
 }
 

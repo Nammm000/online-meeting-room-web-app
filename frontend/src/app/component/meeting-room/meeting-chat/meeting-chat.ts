@@ -39,6 +39,26 @@ export class MeetingChat {
 
   readonly draft = signal('');
 
+  /** Private-message target; null = broadcast to everyone. */
+  readonly recipientId = signal<number | null>(null);
+
+  /** Joined participants besides me — the DM target list. */
+  readonly recipientOptions = computed(() =>
+    this.roomService.roster().filter(
+      (participant) => participant.userId !== this.roomService.myUserId(),
+    ),
+  );
+
+  readonly recipientName = computed(() => {
+    const id = this.recipientId();
+    if (id === null) {
+      return null;
+    }
+    return (
+      this.roomService.roster().find((participant) => participant.userId === id)?.name ?? null
+    );
+  });
+
   readonly canSubmit = computed(
     () => this.draft().trim() !== '' && this.roomService.canSendChat() && !this.roomService.chatSending(),
   );
@@ -61,8 +81,18 @@ export class MeetingChat {
     if (!this.canSubmit()) {
       return;
     }
-    this.roomService.sendChat(this.draft());
+    // The selection survives a send — consecutive PMs to the same person are
+    // the common case; the × clears back to broadcast.
+    this.roomService.sendChat(this.draft(), this.recipientId());
     this.draft.set('');
+  }
+
+  onRecipientChange(value: number | null): void {
+    this.recipientId.set(value);
+  }
+
+  clearRecipient(): void {
+    this.recipientId.set(null);
   }
 
   loadOlder(): void {

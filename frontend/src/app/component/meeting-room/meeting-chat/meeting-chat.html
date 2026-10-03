@@ -20,9 +20,17 @@
     <li
       class="chat-list__item"
       [class.chat-list__item--self]="message.senderId === roomService.myUserId()"
+      [class.chat-list__item--private]="message.recipientId !== null"
     >
       <div class="chat-list__head">
         <span class="chat-list__sender">{{ message.senderName }}</span>
+        @if (message.recipientId !== null) {
+        <span class="chat-list__private">
+          {{ message.senderId === roomService.myUserId()
+              ? (langService.t('meetingRoom.chatPrivateTo') + ' ' + message.recipientName)
+              : langService.t('meetingRoom.chatPrivate') }}
+        </span>
+        }
         <span class="chat-list__time">{{ message.sentAt }}</span>
         @if (canDelete(message.senderId)) {
         <button
@@ -44,26 +52,55 @@
   </ul>
 
   @if (roomService.canSendChat()) {
-  <form class="chat-composer" (ngSubmit)="send()">
-    <input
-      type="text"
-      name="draft"
-      [ngModel]="draft()"
-      (ngModelChange)="draft.set($event)"
-      [placeholder]="langService.t('meetingRoom.chatPlaceholder')"
-      autocomplete="off"
-      maxlength="2000"
-    />
-    <button
-      type="submit"
-      class="table-button table-button--confirm"
-      [title]="langService.t('meetingRoom.send')"
-      [attr.aria-label]="langService.t('meetingRoom.send')"
-      [disabled]="!canSubmit()"
-    >
-      <i class="icon-18 send"></i>
-    </button>
-  </form>
+  <div class="chat-composer" [class.chat-composer--private]="recipientId() !== null">
+    <div class="chat-composer__target">
+      <select
+        class="chat-composer__recipient"
+        [ngModel]="recipientId()"
+        (ngModelChange)="onRecipientChange($event)"
+        [attr.aria-label]="langService.t('meetingRoom.chatTo')"
+      >
+        <option [ngValue]="null">{{ langService.t('meetingRoom.chatToEveryone') }}</option>
+        @for (option of recipientOptions(); track option.userId) {
+        <option [ngValue]="option.userId">{{ option.name }}</option>
+        }
+      </select>
+      @if (recipientId() !== null) {
+      <span class="chat-composer__private-label">
+        {{ langService.t('meetingRoom.chatPrivateTo') }} {{ recipientName() }}
+      </span>
+      <button
+        type="button"
+        class="chat-composer__clear"
+        (click)="clearRecipient()"
+        [title]="langService.t('meetingRoom.chatToEveryone')"
+        [attr.aria-label]="langService.t('meetingRoom.chatToEveryone')"
+      >
+        &times;
+      </button>
+      }
+    </div>
+    <form class="chat-composer__row" (ngSubmit)="send()">
+      <input
+        type="text"
+        name="draft"
+        [ngModel]="draft()"
+        (ngModelChange)="draft.set($event)"
+        [placeholder]="langService.t('meetingRoom.chatPlaceholder')"
+        autocomplete="off"
+        maxlength="2000"
+      />
+      <button
+        type="submit"
+        class="table-button table-button--confirm"
+        [title]="langService.t('meetingRoom.send')"
+        [attr.aria-label]="langService.t('meetingRoom.send')"
+        [disabled]="!canSubmit()"
+      >
+        <i class="icon-18 send"></i>
+      </button>
+    </form>
+  </div>
   } @else {
   <p class="chat-readonly">{{ langService.t('meetingRoom.chatReadOnly') }}</p>
   }

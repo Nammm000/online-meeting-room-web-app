@@ -26,7 +26,14 @@ describe('MeetingParticipantService', () => {
 
   it('joins and polls /me on the joinCode path', () => {
     service.join(CODE).subscribe();
-    expectOne('POST', `${BASE_URL}/join`).flush({});
+    const join = expectOne('POST', `${BASE_URL}/join`);
+    expect(join.request.body).toEqual({ password: null }); // open meeting
+    join.flush({});
+
+    service.join(CODE, 'pw').subscribe();
+    const protectedJoin = expectOne('POST', `${BASE_URL}/join`);
+    expect(protectedJoin.request.body).toEqual({ password: 'pw' });
+    protectedJoin.flush({});
 
     service.me(CODE).subscribe();
     expectOne('GET', `${BASE_URL}/me`).flush({});
@@ -66,6 +73,13 @@ describe('MeetingParticipantService', () => {
     const other = expectOne('PATCH', `${BASE_URL}/participants/7/mute`);
     expect(other.request.body).toEqual({ muted: false });
     other.flush({ messag: 'Participant mute state updated' });
+  });
+
+  it('PATCHes the self speaking state', () => {
+    service.setSelfSpeaking(CODE, true).subscribe();
+    const request = expectOne('PATCH', `${BASE_URL}/participants/me/speaking`);
+    expect(request.request.body).toEqual({ speaking: true });
+    request.flush({ messag: 'Speaking state updated' });
   });
 
   it('removes a participant', () => {

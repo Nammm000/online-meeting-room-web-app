@@ -34,9 +34,19 @@ export class MeetingChatService {
     });
   }
 
-  /** Sends a message; content is non-blank and at most 2000 characters. */
-  send(joinCode: string, content: string): Observable<ChatMessage> {
-    const body: SendChatRequestBody = { content };
+  /**
+   * Sends a message; content is non-blank and at most 2000 characters. A
+   * recipientUserId makes it private — visible only to sender and recipient.
+   */
+  send(
+    joinCode: string,
+    content: string,
+    recipientUserId?: number | null,
+  ): Observable<ChatMessage> {
+    const body: SendChatRequestBody = {
+      content,
+      recipientUserId: recipientUserId ?? null,
+    };
     return this.http.post<ChatMessage>(this.base(joinCode), body);
   }
 

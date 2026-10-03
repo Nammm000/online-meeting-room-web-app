@@ -32,6 +32,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -42,6 +43,7 @@ class MeetingChatServiceTest {
     private MeetingChatMessageRepo chatRepo;
     private MeetingRepo meetingRepo;
     private MeetingParticipantRepo participantRepo;
+    private UserRepo userRepo;
     private MeetingChatService service;
 
     private final User host = User.builder().id(2L).name("Host").email("host@t.dev").build();
@@ -53,10 +55,11 @@ class MeetingChatServiceTest {
         chatRepo = mock(MeetingChatMessageRepo.class);
         meetingRepo = mock(MeetingRepo.class);
         participantRepo = mock(MeetingParticipantRepo.class);
-        service = new MeetingChatService(chatRepo, new MeetingAuthority(meetingRepo, participantRepo));
+        userRepo = mock(UserRepo.class);
+        service = new MeetingChatService(chatRepo, new MeetingAuthority(meetingRepo, participantRepo),
+                participantRepo, userRepo);
 
         // Real MeetingAuthority over mocked repos: the authority logic itself is under test
-        UserRepo userRepo = mock(UserRepo.class);
         RequestSecurityContext securityContext = new RequestSecurityContext();
         securityContext.setUsername(guest.getEmail());
         new UserUtils(userRepo, securityContext);
@@ -76,7 +79,7 @@ class MeetingChatServiceTest {
     @Test
     void sendRequiresTheMeetingToBeInProgress() { // rule 3
         meeting.setStatus(MeetingStatus.ENDED);
-        assertThatThrownBy(() -> service.send("ABCD234567", "hello"))
+        assertThatThrownBy(() -> service.send("ABCD234567", "hello", null))
                 .isInstanceOf(ConflictException.class);
         verify(chatRepo, never()).save(any());
     }
@@ -88,34 +91,73 @@ class MeetingChatServiceTest {
                 .thenReturn(Optional.of(MeetingParticipant.builder()
                         .meeting(meeting).user(guest)
                         .role(ParticipantRole.PARTICIPANT).status(ParticipantStatus.LEFT).build()));
-        assertThatThrownBy(() -> service.send("ABCD234567", "hello"))
+        assertThatThrownBy(() -> service.send("ABCD234567", "hello", null))
                 .isInstanceOf(AccessDeniedException.class);
         verify(chatRepo, never()).save(any());
     }
 
     @Test
     void sendStoresTheMessageAndReturnsTheDto() {
-        ChatMessageDTO sent = service.send("ABCD234567", "hello from the test");
+        ChatMessageDTO sent = service.send("ABCD234567", "hello from the test", null);
 
         assertThat(sent.content()).isEqualTo("hello from the test");
         assertThat(sent.senderId()).isEqualTo(guest.getId());
         assertThat(sent.senderName()).isEqualTo(guest.getName());
+        assertThat(sent.recipientId()).as("broadcast by default").isNull();
+        assertThat(sent.recipientName()).isNull();
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<MeetingChatMessage> saved = ArgumentCaptor.forClass(MeetingChatMessage.class);
         verify(chatRepo).save(saved.capture());
         assertThat(saved.getValue().getMeeting()).isEqualTo(meeting);
+        assertThat(saved.getValue().getRecipient()).isNull();
         assertThat(saved.getValue().getMessageType()).isEqualTo(MeetingChatMessage.ChatMessageType.TEXT);
     }
 
     @Test
     void blankOrOversizeContentIsRejected() {
-        assertThatThrownBy(() -> service.send("ABCD234567", "  "))
+        assertThatThrownBy(() -> service.send("ABCD234567", "  ", null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.send("ABCD234567", null))
+        assertThatThrownBy(() -> service.send("ABCD234567", null, null))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.send("ABCD234567", "x".repeat(2001)))
+        assertThatThrownBy(() -> service.send("ABCD234567", "x".repeat(2001), null))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    // ── private messages ─────────────────────────────────────────────────────
+
+    @Test
+    void privateMessagePersistsTheRecipientAndExposesItInTheDto() {
+        when(participantRepo.existsByMeetingIdAndUserId(1L, host.getId())).thenReturn(true);
+        when(userRepo.findById(host.getId())).thenReturn(Optional.of(host));
+
+        ChatMessageDTO sent = service.send("ABCD234567", "psst", host.getId());
+
+        assertThat(sent.recipientId()).isEqualTo(host.getId());
+        assertThat(sent.recipientName()).isEqualTo(host.getName());
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<MeetingChatMessage> saved = ArgumentCaptor.forClass(MeetingChatMessage.class);
+        verify(chatRepo).save(saved.capture());
+        assertThat(saved.getValue().getRecipient()).isEqualTo(host);
+    }
+
+    @Test
+    void privateMessageToANonParticipantIsRejected() {
+        when(participantRepo.existsByMeetingIdAndUserId(1L, host.getId())).thenReturn(false);
+
+        assertThatThrownBy(() -> service.send("ABCD234567", "psst", host.getId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Recipient is not a participant of this meeting");
+        verify(chatRepo, never()).save(any());
+    }
+
+    @Test
+    void privateMessageToYourselfIsRejected() {
+        assertThatThrownBy(() -> service.send("ABCD234567", "note to self", guest.getId()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Cannot send a private message to yourself");
+        verify(chatRepo, never()).save(any());
     }
 
     @Test
@@ -130,9 +172,22 @@ class MeetingChatServiceTest {
 
         // The caller's own meeting stays readable after it ended (LEFT/ENDED are fine for history)
         meeting.setStatus(MeetingStatus.ENDED);
-        when(chatRepo.findByMeetingIdAndDeletedAtIsNull(any(), any(Pageable.class)))
+        when(chatRepo.findVisibleByMeetingAndViewer(any(), any(), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10, Sort.by("sentAt")), 0));
         assertThat(service.getMessages("ABCD234567", 0, 10).getTotalElements()).isZero();
+    }
+
+    @Test
+    void historyScopesVisibilityToTheCallerWithTheFixedSort() {
+        when(chatRepo.findVisibleByMeetingAndViewer(any(), any(), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 10), 0));
+
+        service.getMessages("ABCD234567", 0, 10);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(chatRepo).findVisibleByMeetingAndViewer(eq(1L), eq(guest.getId()), pageable.capture());
+        assertThat(pageable.getValue().getSort())
+                .isEqualTo(Sort.by(Sort.Direction.DESC, "sentAt").and(Sort.by(Sort.Direction.DESC, "id")));
     }
 
     @Test

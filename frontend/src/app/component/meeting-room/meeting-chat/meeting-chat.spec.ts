@@ -7,7 +7,7 @@ import { MeetingRoomService } from 'service/meeting-room.service';
 import { AuthService } from 'service/auth.service';
 import { ModalService } from 'service/modal.service';
 import type { JwtClaims } from 'util/jwt-util';
-import type { ChatMessage, MyMeetingStatus } from 'model/meeting.model';
+import type { ChatMessage, MyMeetingStatus, Participant } from 'model/meeting.model';
 import type { PagedResponse } from 'model/paged-response.model';
 
 function base64Url(input: string): string {
@@ -35,8 +35,25 @@ const message = (id: number, senderId = 1): ChatMessage => ({
   id,
   senderId,
   senderName: 'Alice',
+  recipientId: null,
+  recipientName: null,
   content: `m${id}`,
   sentAt: '2026-10-02T09:00:00',
+});
+
+const participantRow = (userId: number, name: string): Participant => ({
+  userId,
+  name,
+  role: 'PARTICIPANT',
+  status: 'JOINED',
+  muted: false,
+  speaking: false,
+  joinCount: 1,
+  firstJoinedAt: null,
+  lastJoinedAt: null,
+  lastLeftAt: null,
+  lastSpeakingAt: null,
+  admittedByName: null,
 });
 
 const joinedStatus: MyMeetingStatus = {
@@ -55,6 +72,7 @@ const joinedStatus: MyMeetingStatus = {
     waitingRoomEnabled: false,
     muteOnEntry: false,
     locked: false,
+    hasPassword: false,
     hostId: 1,
     hostName: 'Alice',
     media: null,
@@ -65,10 +83,12 @@ const joinedStatus: MyMeetingStatus = {
     role: 'PARTICIPANT',
     status: 'JOINED',
     muted: false,
+    speaking: false,
     joinCount: 1,
     firstJoinedAt: null,
     lastJoinedAt: null,
     lastLeftAt: null,
+    lastSpeakingAt: null,
     admittedByName: null,
   },
   media: {
@@ -119,12 +139,18 @@ describe('MeetingChat', () => {
     httpMock.verify();
   });
 
-  /** Opens a joined room and satisfies the initial /me + history load. */
-  const openJoinedRoom = (history: PagedResponse<ChatMessage> = emptyChatPage) => {
+  /** Opens a joined room and satisfies the initial /me + roster + history load. */
+  const openJoinedRoom = (
+    history: PagedResponse<ChatMessage> = emptyChatPage,
+    roster: Participant[] = [],
+  ) => {
     roomService.start(CODE);
     httpMock
       .expectOne((r) => r.method === 'GET' && r.url === `${BASE_URL}/me`)
       .flush(joinedStatus);
+    httpMock
+      .expectOne((r) => r.method === 'GET' && r.url === `${BASE_URL}/roster`)
+      .flush(roster);
     httpMock
       .expectOne((r) => r.method === 'GET' && r.url === `${BASE_URL}/chat`)
       .flush(history);
@@ -161,11 +187,56 @@ describe('MeetingChat', () => {
     component.draft.set('  hello  ');
     component.send();
     const request = httpMock.expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/chat`);
-    expect(request.request.body).toEqual({ content: 'hello' });
+    expect(request.request.body).toEqual({ content: 'hello', recipientUserId: null });
     request.flush(message(3, 2));
 
     expect(component.draft()).toBe('');
     expect(roomService.chatMessages().map((m) => m.id)).toEqual([3]);
+  });
+
+  it('sends privately to the selected participant and marks the conversation', () => {
+    openJoinedRoom(emptyChatPage, [participantRow(2, 'Bob'), participantRow(3, 'Carol')]);
+    fixture.detectChanges();
+
+    // DM targets = roster minus self (Bob is myUserId 2): only Carol.
+    const select = (fixture.nativeElement as HTMLElement).querySelector(
+      'select.chat-composer__recipient',
+    )!;
+    expect(select.querySelectorAll('option')).toHaveLength(2); // "To: Everyone" + Carol
+
+    component.onRecipientChange(3);
+    fixture.detectChanges();
+    const composer = (fixture.nativeElement as HTMLElement).querySelector('.chat-composer')!;
+    expect(composer.classList).toContain('chat-composer--private');
+    expect(component.recipientName()).toBe('Carol');
+
+    component.draft.set('psst');
+    component.send();
+    const request = httpMock.expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/chat`);
+    expect(request.request.body).toEqual({ content: 'psst', recipientUserId: 3 });
+    request.flush({ ...message(4, 2), recipientId: 3, recipientName: 'Carol' });
+    fixture.detectChanges();
+
+    const item = (fixture.nativeElement as HTMLElement).querySelector('.chat-list__item')!;
+    expect(item.classList).toContain('chat-list__item--private');
+    expect(component.recipientId()).toBe(3); // selection survives for consecutive PMs
+
+    component.clearRecipient();
+    expect(component.recipientId()).toBeNull();
+  });
+
+  it('labels an incoming private message', () => {
+    openJoinedRoom({
+      ...emptyChatPage,
+      content: [{ ...message(5, 1), recipientId: 2, recipientName: 'Bob' }],
+      totalElements: 1,
+      totalPages: 1,
+    });
+    fixture.detectChanges();
+
+    const item = (fixture.nativeElement as HTMLElement).querySelector('.chat-list__item')!;
+    expect(item.classList).toContain('chat-list__item--private');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.chat-list__private')).not.toBeNull();
   });
 
   it('deletes behind the confirmation modal', () => {

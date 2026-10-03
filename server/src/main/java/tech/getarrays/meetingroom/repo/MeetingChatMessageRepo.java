@@ -16,12 +16,16 @@ import java.time.LocalDateTime;
 public interface MeetingChatMessageRepo extends JpaRepository<MeetingChatMessage, Long> {
 
     /**
-     * Visible messages of a meeting. Callers fix the sort server-side to
-     * {@code sentAt DESC, id DESC} (the id breaks same-second ties) — the same
-     * fixed-sort paging convention as {@code UserPdfFileRepo}.
+     * Messages visible to one viewer: broadcasts plus this viewer's private
+     * traffic (sent by or addressed to them). Callers fix the sort server-side
+     * to {@code sentAt DESC, id DESC} (the id breaks same-second ties) — the
+     * same fixed-sort paging convention as {@code UserPdfFileRepo}.
      */
-    Page<MeetingChatMessage> findByMeetingIdAndDeletedAtIsNull(@Param("meetingId") Long meetingId,
-                                                               Pageable pageable);
+    @Query("select m from MeetingChatMessage m where m.meeting.id = :meetingId and m.deletedAt is null " +
+           "and (m.recipient is null or m.recipient.id = :viewerId or m.sender.id = :viewerId)")
+    Page<MeetingChatMessage> findVisibleByMeetingAndViewer(@Param("meetingId") Long meetingId,
+                                                           @Param("viewerId") Long viewerId,
+                                                           Pageable pageable);
 
     /** Soft delete by host or author; already-deleted rows stay untouched (returns 0). */
     @Transactional

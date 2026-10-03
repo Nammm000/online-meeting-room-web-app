@@ -52,6 +52,8 @@ export class CreateMeeting {
   scheduledEndAt = signal('');
   waitingRoomEnabled = signal(false);
   muteOnEntry = signal(false);
+  /** Optional join password (4-100 chars, mirrored server check); blank = open meeting. */
+  password = signal('');
 
   readonly isScheduled = computed(() => this.type() === 'SCHEDULED');
 
@@ -103,6 +105,7 @@ export class CreateMeeting {
       scheduledEndAt: scheduled ? this.scheduledEndAt() : null,
       waitingRoomEnabled: this.waitingRoomEnabled(),
       muteOnEntry: this.muteOnEntry(),
+      password: this.password().trim() || null,
     };
     this.submitting.set(true);
     this.errorMessage.set('');
@@ -132,6 +135,7 @@ export class CreateMeeting {
     this.scheduledEndAt.set('');
     this.waitingRoomEnabled.set(false);
     this.muteOnEntry.set(false);
+    this.password.set('');
     this.submitting.set(false);
     this.errorMessage.set('');
   }

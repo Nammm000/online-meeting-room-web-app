@@ -64,6 +64,8 @@ export interface Meeting {
   waitingRoomEnabled: boolean;
   muteOnEntry: boolean;
   locked: boolean;
+  /** True when the meeting was created with a password; the hash never leaves the backend. */
+  hasPassword: boolean;
   hostId: number;
   hostName: string;
   media: MediaCredentials | null;
@@ -76,10 +78,14 @@ export interface Participant {
   role: ParticipantRole;
   status: ParticipantStatus;
   muted: boolean;
+  /** Local-mic-analysis flag reported over REST; always false while muted. */
+  speaking: boolean;
   joinCount: number;
   firstJoinedAt: string | null;
   lastJoinedAt: string | null;
   lastLeftAt: string | null;
+  /** Stamped when speaking flipped false→true; orders simultaneous speakers on the stage. */
+  lastSpeakingAt: string | null;
   admittedByName: string | null;
 }
 
@@ -95,11 +101,13 @@ export interface MyMeetingStatus {
   media: MediaCredentials | null;
 }
 
-/** Mirrors ChatMessageDTO. */
+/** Mirrors ChatMessageDTO. Null recipient fields = a broadcast message. */
 export interface ChatMessage {
   id: number;
   senderId: number;
   senderName: string;
+  recipientId: number | null;
+  recipientName: string | null;
   content: string;
   sentAt: string;
 }
@@ -114,11 +122,23 @@ export interface CreateMeetingRequest {
   scheduledEndAt?: string | null;
   waitingRoomEnabled?: boolean;
   muteOnEntry?: boolean;
+  /** Optional join password, 4-100 chars after trim; blank/undefined = open meeting. */
+  password?: string | null;
+}
+
+/** JoinRequest body — password omitted/null for open meetings. 403 = wrong/missing password. */
+export interface JoinRequestBody {
+  password?: string | null;
 }
 
 /** MuteRequest body — null would deserialize, but the UI always sends a boolean. */
 export interface MuteRequestBody {
   muted: boolean;
+}
+
+/** SpeakingRequest body; the backend clamps to false while muted. */
+export interface SpeakingRequestBody {
+  speaking: boolean;
 }
 
 /** LockRequest body. */
@@ -131,7 +151,8 @@ export interface RoleRequestBody {
   role: MeetingRoleUpdate;
 }
 
-/** SendChatRequest body — non-blank, at most 2000 characters (service-checked). */
+/** SendChatRequest body — non-blank, at most 2000 characters (service-checked); recipientUserId makes it private. */
 export interface SendChatRequestBody {
   content: string;
+  recipientUserId?: number | null;
 }

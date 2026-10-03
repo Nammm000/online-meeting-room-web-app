@@ -89,6 +89,10 @@ public class Meeting {
     @Column(nullable = false)
     private boolean locked = false;
 
+    /** BCrypt hash of the optional join password; null = open meeting. Never serialized — the DTO exposes only {@code hasPassword}. */
+    @Column(name = "password_hash", length = 100)
+    private String passwordHash;
+
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 

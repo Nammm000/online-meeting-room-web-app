@@ -1,6 +1,7 @@
 package tech.getarrays.meetingroom.services.meeting;
 
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import tech.getarrays.meetingroom.dto.meeting.MediaCredentialsDTO;
 import tech.getarrays.meetingroom.dto.meeting.MeetingDTO;
@@ -39,26 +40,30 @@ public class MeetingParticipantService {
     private final MediaTokenService mediaTokenService;
     private final LiveKitMediaService liveKitMediaService;
     private final JanusAudioBridgeClient janusAudioBridgeClient;
+    private final PasswordEncoder passwordEncoder;
 
     public MeetingParticipantService(MeetingParticipantRepo participantRepo,
                                      MeetingAuthority authority,
                                      MeetingStateService stateService,
                                      MediaTokenService mediaTokenService,
                                      LiveKitMediaService liveKitMediaService,
-                                     JanusAudioBridgeClient janusAudioBridgeClient) {
+                                     JanusAudioBridgeClient janusAudioBridgeClient,
+                                     PasswordEncoder passwordEncoder) {
         this.participantRepo = participantRepo;
         this.authority = authority;
         this.stateService = stateService;
         this.mediaTokenService = mediaTokenService;
         this.liveKitMediaService = liveKitMediaService;
         this.janusAudioBridgeClient = janusAudioBridgeClient;
+        this.passwordEncoder = passwordEncoder;
     }
 
-    public MyMeetingStatusDTO join(String joinCode) {
+    public MyMeetingStatusDTO join(String joinCode, String password) {
         Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
         authority.requireStatus(meeting, MeetingStatus.IN_PROGRESS);
         authority.requireNotLocked(meeting);
         User caller = UserUtils.getCurrentUser();
+        requirePasswordIfSet(meeting, caller, password);
         MeetingParticipant participant = stateService.joinParticipant(meeting, caller);
         return statusOf(meeting, participant);
     }
@@ -119,6 +124,14 @@ public class MeetingParticipantService {
         stateService.setMuted(meeting.getId(), caller.getId(), muted);
     }
 
+    /** Self speaking state from local mic analysis — clamped to false while muted. */
+    public void selfSpeaking(String joinCode, boolean speaking) {
+        Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
+        User caller = UserUtils.getCurrentUser();
+        MeetingParticipant participant = authority.requireJoined(meeting, caller);
+        stateService.setSpeaking(meeting.getId(), caller.getId(), speaking && !participant.isMuted());
+    }
+
     /**
      * Host/co-host mute of another participant. Deliberate ordering (doc §5.4):
      * the AudioBridge admin mute runs BEFORE the DB write, so the flag never
@@ -169,6 +182,24 @@ public class MeetingParticipantService {
 
     // ── helpers ──────────────────────────────────────────────────────────────
 
+    /**
+     * Join password gate. 403 (never 401 — the frontend reserves non-auth 401
+     * for session death): a password-protected meeting rejects callers who
+     * supply no password or a wrong one. The host account is exempt; the gate
+     * covers first joins and rejoins alike (they share this entry point).
+     */
+    private void requirePasswordIfSet(Meeting meeting, User caller, String password) {
+        if (meeting.getPasswordHash() == null || meeting.getHost().getId().equals(caller.getId())) {
+            return;
+        }
+        if (password == null || password.isBlank()) {
+            throw new AccessDeniedException("This meeting requires a password");
+        }
+        if (!passwordEncoder.matches(password.trim(), meeting.getPasswordHash())) {
+            throw new AccessDeniedException("Incorrect meeting password");
+        }
+    }
+
     private MyMeetingStatusDTO statusOf(Meeting meeting, MeetingParticipant participant) {
         MediaCredentialsDTO media = null;
         if (participant != null
@@ -177,8 +208,9 @@ public class MeetingParticipantService {
             media = mediaTokenService.mintFor(meeting, participant);
         }
         MeetingDTO summary = MeetingDTO.summaryOf(meeting.getId(), meeting.getJoinCode(), meeting.getTitle(),
-                meeting.getType(), meeting.getStatus(), meeting.isLocked(), meeting.isWaitingRoomEnabled(),
-                meeting.isMuteOnEntry(), meeting.getHost().getId(), meeting.getHost().getName(), meeting.getCreatedAt());
+                meeting.getType(), meeting.getStatus(), meeting.isLocked(), meeting.getPasswordHash() != null,
+                meeting.isWaitingRoomEnabled(), meeting.isMuteOnEntry(), meeting.getHost().getId(),
+                meeting.getHost().getName(), meeting.getCreatedAt());
         return new MyMeetingStatusDTO(summary, participant == null ? null : toDto(participant), media);
     }
 
@@ -190,8 +222,9 @@ public class MeetingParticipantService {
     private ParticipantDTO toDto(MeetingParticipant participant) {
         User admittedBy = participant.getAdmittedBy();
         return new ParticipantDTO(participant.getUser().getId(), participant.getUser().getName(),
-                participant.getRole(), participant.getStatus(), participant.isMuted(), participant.getJoinCount(),
-                participant.getFirstJoinedAt(), participant.getLastJoinedAt(), participant.getLastLeftAt(),
+                participant.getRole(), participant.getStatus(), participant.isMuted(), participant.isSpeaking(),
+                participant.getJoinCount(), participant.getFirstJoinedAt(), participant.getLastJoinedAt(),
+                participant.getLastLeftAt(), participant.getLastSpeakingAt(),
                 admittedBy == null ? null : admittedBy.getName());
     }
 }

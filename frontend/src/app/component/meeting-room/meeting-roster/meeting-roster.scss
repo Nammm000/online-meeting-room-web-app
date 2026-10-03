@@ -97,3 +97,8 @@
     color: var(--text-muted);
   }
 }
+
+// Active-speaker feedback on the roster mic (stage-tile__mic--speaking twin)
+.roster__mic--speaking {
+  color: var(--success-strong);
+}

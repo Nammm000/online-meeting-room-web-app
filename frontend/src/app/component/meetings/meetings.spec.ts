@@ -26,6 +26,7 @@ const row = (id: number, overrides: Partial<Meeting> = {}): Meeting => ({
   waitingRoomEnabled: false,
   muteOnEntry: false,
   locked: false,
+  hasPassword: false,
   hostId: 1,
   hostName: 'Alice',
   media: null,

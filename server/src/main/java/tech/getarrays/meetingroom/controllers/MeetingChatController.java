@@ -37,7 +37,8 @@ public class MeetingChatController {
     @PostMapping
     public ResponseEntity<ChatMessageDTO> send(@PathVariable String joinCode,
                                                @RequestBody SendChatRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).body(chatService.send(joinCode, request.content()));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(chatService.send(joinCode, request.content(), request.recipientUserId()));
     }
 
     @DeleteMapping("/{messageId}")

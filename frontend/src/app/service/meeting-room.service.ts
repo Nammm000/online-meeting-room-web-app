@@ -15,6 +15,8 @@ import { MeetingParticipantService } from 'service/meeting-participant.service';
 import { MeetingChatService } from 'service/meeting-chat.service';
 import { getApiErrorMessage } from 'util/api-util';
 import { GlobalMessages } from 'component/shared/global-constants';
+import { ModalService } from 'service/modal.service';
+import { SpeechDetectionService } from 'service/speech-detection.service';
 import type {
   ChatMessage,
   Meeting,
@@ -43,19 +45,22 @@ export type MeetingViewState =
 /**
  * Signal store for one meeting room. The backend has no per-user push channel
  * yet — presence is REST polling by design (server docs list it as a known
- * gap) — so this service owns two loops and keeps them inside the backend's
+ * gap) — so this service owns three loops and keeps them inside the backend's
  * 3 req/s per-user budget:
  *
  * - /me every 2 s (the authority: participant status, media credentials —
  *   re-minted each poll, never cached — and meeting state).
- * - a 5 s secondary cycle that runs only while joined: roster → lobby (for
- *   moderators) → chat page-0 reconcile, strictly sequential so at most one
- *   request is in flight per tick.
+ * - a roster loop every 2.5 s while joined — the speaking flag rides it, so
+ *   the cadence is what bounds indicator lag (~3 s end to end).
+ * - a 5 s secondary cycle that runs only while joined: lobby (for moderators)
+ *   → chat page-0 reconcile, strictly sequential so at most one request of
+ *   this chain is in flight per tick.
  *
- * Steady state ≈ 1.1 req/s. Transient failures (status 0, 429) back the /me
- * loop off exponentially to 10 s; 404/401 and terminal states (meeting
- * ended/cancelled, participant removed/denied) stop the loops outright —
- * nothing changes server-side until the user acts, and join() restarts them.
+ * Steady state ≈ 1.4 req/s plus throttled speaking PATCHes (≥ 1.5 s apart).
+ * Transient failures (status 0, 429) back the /me loop off exponentially to
+ * 10 s; 404/401 and terminal states (meeting ended/cancelled, participant
+ * removed/denied) stop the loops outright — nothing changes server-side until
+ * the user acts, and join() restarts them.
  *
  * Browser-only, NotificationService-style: on the server (and in an unmounted
  * state) the service is an inert signal holder.
@@ -63,15 +68,20 @@ export type MeetingViewState =
 @Injectable({ providedIn: 'root' })
 export class MeetingRoomService {
   private static readonly ME_POLL_MS = 2000;
+  private static readonly ROSTER_POLL_MS = 2500;
   private static readonly SECONDARY_POLL_MS = 5000;
   private static readonly MAX_BACKOFF_MS = 10_000;
   private static readonly CHAT_PAGE_SIZE = 30;
+  /** Minimum gap between speaking PATCHes — keeps the rate budget intact. */
+  private static readonly SPEAKING_SEND_MIN_MS = 1500;
 
   private readonly platformId = inject(PLATFORM_ID);
   private readonly authService = inject(AuthService);
   private readonly meetingService = inject(MeetingService);
   private readonly participantService = inject(MeetingParticipantService);
   private readonly chatService = inject(MeetingChatService);
+  private readonly modalService = inject(ModalService);
+  private readonly speech = inject(SpeechDetectionService);
 
   // ── state ──────────────────────────────────────────────────────────────
   private readonly _status = signal<MyMeetingStatus | null>(null);
@@ -114,8 +124,13 @@ export class MeetingRoomService {
 
   private joinCode: string | null = null;
   private meTimer: ReturnType<typeof setTimeout> | null = null;
+  private rosterTimer: ReturnType<typeof setTimeout> | null = null;
   private secondaryTimer: ReturnType<typeof setTimeout> | null = null;
+  private speakingFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private meBackoffAttempt = 0;
+  /** Last speaking value PATCHed, and when — false matches the server's row default, so a fresh join sends nothing. */
+  private lastSentSpeaking = false;
+  private lastSpeakingSentAt = 0;
   /** Index of the oldest chat page held locally (page 0 = newest window). */
   private chatOldestPage = 0;
   private chatLoaded = false;
@@ -158,12 +173,79 @@ export class MeetingRoomService {
     return 'joined';
   });
 
+  /**
+   * Stage order: self pinned first (the adjacency anchor), active speakers
+   * immediately after it — most recent first — everyone else in roster order.
+   */
+  readonly stageParticipants = computed<Participant[]>(() => {
+    const roster = this._roster();
+    const myId = this.myUserId();
+    if (myId === null) {
+      return roster;
+    }
+    const self = roster.find((participant) => participant.userId === myId);
+    if (self === undefined) {
+      return roster;
+    }
+    const others = roster.filter((participant) => participant.userId !== myId);
+    const speakers = others
+      .filter((participant) => participant.speaking)
+      .sort((a, b) => (b.lastSpeakingAt ?? '').localeCompare(a.lastSpeakingAt ?? ''));
+    const rest = others.filter((participant) => !participant.speaking);
+    return [self, ...speakers, ...rest];
+  });
+
   constructor() {
     // Logout-while-in-room (header dropdown, expiry elsewhere): stop polling
     // instead of hammering dead endpoints (NotificationService pattern).
     effect(() => {
       if (!this.authService.sessionActive() && this._active()) {
         this.stop();
+      }
+    });
+
+    // Mic analysis runs only while the room is active, joined and unmuted —
+    // the server clamps speaking to false for muted participants, so skip the
+    // permission ask. stop() keeps viewState (data stays for the view), hence
+    // the explicit _active() read.
+    effect(() => {
+      const micLive =
+        this._active() && this.viewState() === 'joined' && !(this.me()?.muted ?? true);
+      if (micLive) {
+        this.speech.start();
+      } else {
+        this.speech.stop();
+      }
+    });
+
+    // Forward speaking transitions over REST, throttled to ≥ 1.5 s apart so
+    // bursts stay inside the rate budget (a trailing timer keeps the latest
+    // state from being dropped by the window).
+    effect(() => {
+      const speaking = this.speech.speaking();
+      const code = this.joinCode;
+      if (!this._active() || code === null || this.viewState() !== 'joined') {
+        return;
+      }
+      if (speaking === this.lastSentSpeaking) {
+        return;
+      }
+      const since = Date.now() - this.lastSpeakingSentAt;
+      if (since >= MeetingRoomService.SPEAKING_SEND_MIN_MS) {
+        this.sendSpeaking(code, speaking);
+      } else if (this.speakingFlushTimer === null) {
+        this.speakingFlushTimer = setTimeout(() => {
+          this.speakingFlushTimer = null;
+          const latest = this.speech.speaking();
+          if (
+            this._active() &&
+            this.viewState() === 'joined' &&
+            this.joinCode !== null &&
+            latest !== this.lastSentSpeaking
+          ) {
+            this.sendSpeaking(this.joinCode, latest);
+          }
+        }, MeetingRoomService.SPEAKING_SEND_MIN_MS - since);
       }
     });
   }
@@ -180,6 +262,8 @@ export class MeetingRoomService {
     this.meBackoffAttempt = 0;
     this.chatOldestPage = 0;
     this.chatLoaded = false;
+    this.lastSentSpeaking = false;
+    this.lastSpeakingSentAt = 0;
     this._notFound.set(false);
     this._status.set(null);
     this._roster.set([]);
@@ -203,28 +287,42 @@ export class MeetingRoomService {
     this._actingUserId.set(null);
   }
 
-  /** Manual refresh — immediate /me plus, when joined, a secondary cycle. */
+  /** Manual refresh — immediate /me plus, when joined, both secondary chains. */
   refreshNow(): void {
     if (!this._active() || this.joinCode === null || !isPlatformBrowser(this.platformId)) {
       return;
     }
     this.pollMe();
     if (this.viewState() === 'joined') {
+      this.fetchRoster();
       this.runSecondaryCycle();
     }
   }
 
   // ── participation actions ──────────────────────────────────────────────
 
-  join(): void {
+  /**
+   * Joins the meeting. A password-protected meeting (known from the /me poll's
+   * `hasPassword`; the host account is exempt) prompts for the password first
+   * and re-prompts on a 403 — the only 403 this endpoint can return is the
+   * password gate, and 401 is reserved for session death (the interceptor).
+   */
+  join(password?: string): void {
     const code = this.joinCode;
     if (code === null || this.joining()) {
+      return;
+    }
+    if (password === undefined && this.meeting()?.hasPassword && this.me()?.role !== 'HOST') {
+      this.modalService.openJoinPassword({
+        meetingTitle: this.meeting()?.title,
+        onSubmit: (entered) => this.join(entered),
+      });
       return;
     }
     this.joining.set(true);
     this._actionError.set('');
     this.participantService
-      .join(code)
+      .join(code, password ?? null)
       .pipe(take(1))
       .subscribe({
         next: (status) => {
@@ -236,6 +334,14 @@ export class MeetingRoomService {
         },
         error: (error) => {
           this.joining.set(false);
+          if ((error as { status?: number }).status === 403) {
+            this.modalService.openJoinPassword({
+              meetingTitle: this.meeting()?.title,
+              errorMessage: getApiErrorMessage(error, GlobalMessages.genericError),
+              onSubmit: (entered) => this.join(entered),
+            });
+            return;
+          }
           this._actionError.set(getApiErrorMessage(error, GlobalMessages.genericError));
         },
       });
@@ -276,15 +382,58 @@ export class MeetingRoomService {
         next: () => {
           this._actingUserId.set(null);
           // Flip locally for a snappy tile; the next /me poll confirms.
+          // Muting also kills the speaking flag (the server clamps it too).
           this._status.update((status) =>
             status && status.participant
-              ? { ...status, participant: { ...status.participant, muted } }
+              ? {
+                  ...status,
+                  participant: muted
+                    ? { ...status.participant, muted, speaking: false }
+                    : { ...status.participant, muted },
+                }
               : status,
           );
+          if (muted) {
+            this._roster.update((roster) =>
+              roster.map((participant) =>
+                participant.userId === this.myUserId()
+                  ? { ...participant, speaking: false }
+                  : participant,
+              ),
+            );
+          }
         },
         error: (error) => {
           this._actingUserId.set(null);
           this._actionError.set(getApiErrorMessage(error, GlobalMessages.genericError));
+        },
+      });
+  }
+
+  /**
+   * Optimistic speaking update: flips self locally (own tile lights instantly)
+   * then PATCHes; failures are swallowed — the next roster poll re-syncs.
+   */
+  private sendSpeaking(code: string, speaking: boolean): void {
+    this.lastSentSpeaking = speaking;
+    this.lastSpeakingSentAt = Date.now();
+    this._status.update((status) =>
+      status && status.participant
+        ? { ...status, participant: { ...status.participant, speaking } }
+        : status,
+    );
+    const myId = this.myUserId();
+    this._roster.update((roster) =>
+      roster.map((participant) =>
+        participant.userId === myId ? { ...participant, speaking } : participant,
+      ),
+    );
+    this.participantService
+      .setSelfSpeaking(code, speaking)
+      .pipe(take(1))
+      .subscribe({
+        error: () => {
+          // best-effort: a dropped update re-syncs on the next roster poll
         },
       });
   }
@@ -378,7 +527,7 @@ export class MeetingRoomService {
 
   // ── chat actions ───────────────────────────────────────────────────────
 
-  sendChat(content: string): void {
+  sendChat(content: string, recipientUserId?: number | null): void {
     const code = this.joinCode;
     const trimmed = content.trim();
     if (code === null || !this.canSendChat() || this.chatSending()) {
@@ -390,7 +539,7 @@ export class MeetingRoomService {
     this.chatSending.set(true);
     this._actionError.set('');
     this.chatService
-      .send(code, trimmed)
+      .send(code, trimmed, recipientUserId ?? null)
       .pipe(take(1))
       .subscribe({
         next: (message) => {
@@ -512,8 +661,8 @@ export class MeetingRoomService {
     this.meTimer = setTimeout(() => this.pollMe(), delay);
   }
 
-  /** Roster → lobby (moderators) → chat reconcile, strictly sequential. */
-  private runSecondaryCycle(): void {
+  /** Roster chain (~2.5 s): one GET per tick — the speaking flag rides it. */
+  private fetchRoster(): void {
     const code = this.joinCode;
     if (code === null || !this._active() || this.viewState() !== 'joined') {
       return;
@@ -523,15 +672,25 @@ export class MeetingRoomService {
       .pipe(take(1))
       .subscribe({
         next: (roster) => {
+          if (!this._active() || this.joinCode !== code) {
+            return; // stopped (or restarted elsewhere) while in flight
+          }
           this._roster.set(roster);
-          this.afterRoster(code);
+          this.scheduleRoster(MeetingRoomService.ROSTER_POLL_MS);
         },
-        error: () => this.afterRoster(code), // secondary data is best-effort
+        error: () => {
+          if (!this._active() || this.joinCode !== code) {
+            return;
+          }
+          this.scheduleRoster(MeetingRoomService.ROSTER_POLL_MS); // secondary data is best-effort
+        },
       });
   }
 
-  private afterRoster(code: string): void {
-    if (!this._active() || this.joinCode !== code) {
+  /** Lobby (moderators) → chat reconcile, strictly sequential (~5 s chain). */
+  private runSecondaryCycle(): void {
+    const code = this.joinCode;
+    if (code === null || !this._active() || this.viewState() !== 'joined') {
       return;
     }
     if (!this.canModerate()) {
@@ -593,6 +752,14 @@ export class MeetingRoomService {
       });
   }
 
+  private scheduleRoster(delay: number): void {
+    if (!this._active() || !isPlatformBrowser(this.platformId)) {
+      return;
+    }
+    this.clearRosterTimer();
+    this.rosterTimer = setTimeout(() => this.fetchRoster(), delay);
+  }
+
   private scheduleSecondary(delay: number): void {
     if (!this._active() || !isPlatformBrowser(this.platformId)) {
       return;
@@ -634,6 +801,10 @@ export class MeetingRoomService {
       return true;
     }
 
+    if (!this.rosterArmed && this.viewState() === 'joined') {
+      this.rosterArmed = true;
+      this.fetchRoster(); // immediate first roster — the stage needs it right after join
+    }
     if (!this.secondaryArmed && this.viewState() === 'joined') {
       this.secondaryArmed = true;
       this.scheduleSecondary(MeetingRoomService.SECONDARY_POLL_MS);
@@ -671,6 +842,7 @@ export class MeetingRoomService {
   // ── small helpers ──────────────────────────────────────────────────────
 
   private secondaryArmed = false;
+  private rosterArmed = false;
 
   /** Row actions all share one busy flag and refresh the secondary data on success. */
   private runRowAction(userId: number, request$: Observable<unknown>): void {
@@ -683,7 +855,7 @@ export class MeetingRoomService {
       next: () => {
         this._actingUserId.set(null);
         if (this._active() && this.viewState() === 'joined') {
-          this.runSecondaryCycle();
+          this.fetchRoster(); // moderation actions are roster-visible; chat reconciles on its own timer
         }
       },
       error: (error) => {
@@ -712,9 +884,26 @@ export class MeetingRoomService {
     }
   }
 
+  private clearRosterTimer(): void {
+    if (this.rosterTimer !== null) {
+      clearTimeout(this.rosterTimer);
+      this.rosterTimer = null;
+    }
+  }
+
+  private clearSpeakingFlushTimer(): void {
+    if (this.speakingFlushTimer !== null) {
+      clearTimeout(this.speakingFlushTimer);
+      this.speakingFlushTimer = null;
+    }
+  }
+
   private clearTimers(): void {
     this.clearMeTimer();
+    this.clearRosterTimer();
     this.clearSecondaryTimer();
+    this.clearSpeakingFlushTimer();
+    this.rosterArmed = false;
     this.secondaryArmed = false;
   }
 }

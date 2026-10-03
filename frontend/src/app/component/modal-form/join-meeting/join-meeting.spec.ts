@@ -25,6 +25,7 @@ const meetingFixture = {
   waitingRoomEnabled: true,
   muteOnEntry: false,
   locked: false,
+  hasPassword: false,
   hostId: 1,
   hostName: 'Alice',
   media: null,

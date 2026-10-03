@@ -4,10 +4,12 @@ import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { MessageResponse } from 'model/common.model';
 import type {
+  JoinRequestBody,
   MeetingRoleUpdate,
   MuteRequestBody,
   MyMeetingStatus,
   Participant,
+  SpeakingRequestBody,
 } from 'model/meeting.model';
 
 /**
@@ -26,9 +28,14 @@ export class MeetingParticipantService {
     return `${environment.apiUrl}/meetings/${joinCode}`;
   }
 
-  /** Seats the caller; 409 unless the meeting is IN_PROGRESS and unlocked. */
-  join(joinCode: string): Observable<MyMeetingStatus> {
-    return this.http.post<MyMeetingStatus>(`${this.base(joinCode)}/join`, {});
+  /**
+   * Seats the caller; 409 unless the meeting is IN_PROGRESS and unlocked.
+   * Password-protected meetings 403 without the correct password (the host
+   * account is exempt) — 403, never 401: the interceptor owns auth-death 401s.
+   */
+  join(joinCode: string, password?: string | null): Observable<MyMeetingStatus> {
+    const body: JoinRequestBody = { password: password ?? null };
+    return this.http.post<MyMeetingStatus>(`${this.base(joinCode)}/join`, body);
   }
 
   /**
@@ -74,6 +81,18 @@ export class MeetingParticipantService {
     const body: MuteRequestBody = { muted };
     return this.http.patch<MessageResponse>(
       `${this.base(joinCode)}/participants/me/mute`,
+      body,
+    );
+  }
+
+  /** Self speaking state from local mic analysis; requires JOINED, clamped to false while muted. */
+  setSelfSpeaking(
+    joinCode: string,
+    speaking: boolean,
+  ): Observable<MessageResponse> {
+    const body: SpeakingRequestBody = { speaking };
+    return this.http.patch<MessageResponse>(
+      `${this.base(joinCode)}/participants/me/speaking`,
       body,
     );
   }

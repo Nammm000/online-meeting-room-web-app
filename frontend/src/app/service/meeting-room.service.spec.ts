@@ -1,9 +1,12 @@
 import { TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
 import { environment } from '../../environments/environment';
 import { AuthService } from 'service/auth.service';
 import { MeetingRoomService } from 'service/meeting-room.service';
+import { SpeechDetectionService } from 'service/speech-detection.service';
+import { ModalService } from 'service/modal.service';
 import type { JwtClaims } from 'util/jwt-util';
 import type {
   ChatMessage,
@@ -57,10 +60,12 @@ function participantFixture(
     role: 'PARTICIPANT',
     status,
     muted: false,
+    speaking: false,
     joinCount: 1,
     firstJoinedAt: null,
     lastJoinedAt: null,
     lastLeftAt: null,
+    lastSpeakingAt: null,
     admittedByName: null,
     ...overrides,
   };
@@ -69,6 +74,7 @@ function participantFixture(
 function statusFixture(options: {
   participant: Participant | null;
   meetingStatus?: Meeting['status'];
+  hasPassword?: boolean;
   media?: MediaCredentials | null;
 }): MyMeetingStatus {
   return {
@@ -87,6 +93,7 @@ function statusFixture(options: {
       waitingRoomEnabled: true,
       muteOnEntry: false,
       locked: false,
+      hasPassword: options.hasPassword ?? false,
       hostId: 1,
       hostName: 'Alice',
       media: null,
@@ -102,6 +109,8 @@ function chatPage(ids: number[], last = true): PagedResponse<ChatMessage> {
       id,
       senderId: 1,
       senderName: 'Alice',
+      recipientId: null,
+      recipientName: null,
       content: `m${id}`,
       sentAt: '2026-10-02T09:00:00',
     })),
@@ -118,6 +127,7 @@ function chatPage(ids: number[], last = true): PagedResponse<ChatMessage> {
 
 let httpMock: HttpTestingController;
 let service: MeetingRoomService;
+let speechMock: ReturnType<typeof makeSpeechMock>;
 
 /** Pending requests matching a predicate (empty array when none). */
 const pending = (method: string, path: string) =>
@@ -140,6 +150,19 @@ const flushChat = (page: PagedResponse<ChatMessage> = chatPage([])): void => {
   }
 };
 
+/** Flushes every pending roster fetch (the join-time fetch and/or a chain tick). */
+const flushRoster = (roster: Participant[] = []): void => {
+  for (const request of pending('GET', '/roster')) {
+    request.flush(roster);
+  }
+};
+
+const makeSpeechMock = () => ({
+  speaking: signal(false),
+  start: vi.fn(),
+  stop: vi.fn(),
+});
+
 /** flush(body) alone would be a 200 — errors need the status in the options. */
 const flushError = (request: TestRequest, status: number, message: string): void => {
   request.flush({ status, message, timeStamp: 1759427449123 }, { status, statusText: message });
@@ -148,8 +171,13 @@ const flushError = (request: TestRequest, status: number, message: string): void
 describe('MeetingRoomService', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
+    speechMock = makeSpeechMock();
     await TestBed.configureTestingModule({
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: SpeechDetectionService, useValue: speechMock },
+      ],
     });
     httpMock = TestBed.inject(HttpTestingController);
     service = TestBed.inject(MeetingRoomService);
@@ -170,6 +198,7 @@ describe('MeetingRoomService', () => {
     flushMe(
       statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }),
     );
+    flushRoster();
     flushChat();
     expect(service.viewState()).toBe('joined');
     expect(service.media()?.liveKitUrl).toBe('http://localhost:7880');
@@ -182,6 +211,7 @@ describe('MeetingRoomService', () => {
 
     vi.advanceTimersByTime(2000);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat();
     expect(service.viewState()).toBe('joined');
   });
@@ -217,6 +247,7 @@ describe('MeetingRoomService', () => {
   it('stops polling on terminal meeting states and keeps chat data', () => {
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat(chatPage([1]));
 
     vi.advanceTimersByTime(2000);
@@ -259,6 +290,7 @@ describe('MeetingRoomService', () => {
   it('stop() silences every loop', () => {
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat();
 
     service.stop();
@@ -287,6 +319,7 @@ describe('MeetingRoomService', () => {
     let navigated = false;
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat();
 
     service.leave(() => {
@@ -301,13 +334,14 @@ describe('MeetingRoomService', () => {
     expect(pending('GET', '/me')).toHaveLength(0);
   });
 
-  it('admit fires the endpoint then refreshes roster and lobby for a host', () => {
+  it('admit fires the endpoint then refreshes the roster; lobby/chat reconcile on their chain', () => {
     service.start(CODE);
     const hostStatus = statusFixture({
       participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
       media: MEDIA,
     });
     flushMe(hostStatus);
+    flushRoster();
     flushChat();
     expect(service.canModerate()).toBe(true);
 
@@ -316,8 +350,12 @@ describe('MeetingRoomService', () => {
       .expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/lobby/2/admit`)
       .flush({ messag: 'Participant admitted' });
 
-    // Row-action success triggers an immediate secondary refresh.
-    pending('GET', '/roster')[0]!.flush([participantFixture('JOINED')]);
+    // Row-action success refreshes the roster immediately; the moderator's
+    // lobby + chat reconcile arrive on their own 5 s tick.
+    vi.advanceTimersByTime(5000);
+    flushMe(hostStatus);
+    flushMe(hostStatus);
+    flushRoster([participantFixture('JOINED')]);
     pending('GET', '/lobby')[0]!.flush([participantFixture('WAITING')]);
     flushChat(chatPage([5]));
     expect(service.actingUserId()).toBeNull();
@@ -328,6 +366,7 @@ describe('MeetingRoomService', () => {
   it('self-mute flips the local participant immediately', () => {
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat();
 
     service.setSelfMuted(true);
@@ -341,6 +380,7 @@ describe('MeetingRoomService', () => {
   it('surfaces a row-action failure via actionError', () => {
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat();
 
     service.muteParticipant(3, true);
@@ -357,15 +397,16 @@ describe('MeetingRoomService', () => {
   it('reconciles chat: appends new messages and drops in-window deletions', () => {
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat(chatPage([3, 2, 1]));
     expect(service.chatMessages().map((m) => m.id)).toEqual([1, 2, 3]);
 
-    // /me polls at +2 s/+4 s, then the 5 s secondary: roster → chat (no
-    // lobby — the fixture participant is not a moderator).
+    // /me polls at +2 s/+4 s, the roster chain ticks at +2.5 s, and the
+    // 5 s secondary chain reconciles chat (no lobby — not a moderator).
     vi.advanceTimersByTime(5000);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
-    pending('GET', '/roster')[0]!.flush([]);
+    flushRoster();
     flushChat(chatPage([4, 3, 1]));
     expect(service.chatMessages().map((m) => m.id)).toEqual([1, 3, 4]);
   });
@@ -373,19 +414,20 @@ describe('MeetingRoomService', () => {
   it('sendChat appends the 201 message without duplicating a reconciled copy', () => {
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat(chatPage([1]));
 
     service.sendChat('hello');
     httpMock
       .expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/chat`)
-      .flush({ id: 2, senderId: 2, senderName: 'Bob', content: 'hello', sentAt: '2026-10-02T09:01:00' });
+      .flush({ id: 2, senderId: 2, senderName: 'Bob', recipientId: null, recipientName: null, content: 'hello', sentAt: '2026-10-02T09:01:00' });
     expect(service.chatMessages().map((m) => m.id)).toEqual([1, 2]);
 
     // A later reconcile delivering the same id must not duplicate it.
     vi.advanceTimersByTime(5000);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
-    pending('GET', '/roster')[0]!.flush([]);
+    flushRoster();
     flushChat(chatPage([2, 1]));
     expect(service.chatMessages().map((m) => m.id)).toEqual([1, 2]);
   });
@@ -393,6 +435,7 @@ describe('MeetingRoomService', () => {
   it('loadOlderChat prepends the next page in ascending order', () => {
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     const first = chatPage([4, 3], false);
     first.totalPages = 2;
     first.totalElements = 4;
@@ -411,6 +454,7 @@ describe('MeetingRoomService', () => {
   it('endMeeting flips the local state to ended and halts the loops', () => {
     service.start(CODE);
     flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
     flushChat();
 
     service.endMeeting();
@@ -421,5 +465,180 @@ describe('MeetingRoomService', () => {
     expect(service.viewState()).toBe('ended');
     vi.advanceTimersByTime(30_000);
     expect(pending('GET', '/me')).toHaveLength(0);
+  });
+
+  // ── join password gate ───────────────────────────────────────────────────
+
+  it('prompts for the password on a protected meeting and submits it with join', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('LEFT'), hasPassword: true }));
+    expect(service.viewState()).toBe('preJoin');
+
+    const modalService = TestBed.inject(ModalService);
+    const openSpy = vi.spyOn(modalService, 'openJoinPassword');
+
+    service.join();
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(pending('POST', '/join')).toHaveLength(0); // nothing sent without the password
+
+    modalService.joinPassword()?.onSubmit('pw');
+    const join = httpMock.expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/join`);
+    expect(join.request.body).toEqual({ password: 'pw' });
+    join.flush(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+    expect(service.viewState()).toBe('joined');
+  });
+
+  it('re-opens the password prompt with the server message on a join 403', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('LEFT'), hasPassword: true }));
+    const openSpy = vi.spyOn(TestBed.inject(ModalService), 'openJoinPassword');
+
+    service.join('wrong');
+    flushError(
+      httpMock.expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/join`),
+      403,
+      'Incorrect meeting password',
+    );
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy.mock.calls[0]![0].errorMessage).toBe('Incorrect meeting password');
+    expect(service.actionError()).toBe(''); // not a generic failure — a re-prompt
+  });
+
+  it('exempts the host account from the join password', () => {
+    service.start(CODE);
+    flushMe(
+      statusFixture({
+        participant: participantFixture('LEFT', { userId: 1, name: 'Alice', role: 'HOST' }),
+        hasPassword: true,
+      }),
+    );
+
+    service.join();
+    const join = httpMock.expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/join`);
+    expect(join.request.body).toEqual({ password: null });
+    join.flush(
+      statusFixture({
+        participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
+        media: MEDIA,
+      }),
+    );
+    flushRoster();
+    flushChat();
+  });
+
+  it('routes a non-403 join failure to actionError, not the prompt', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('LEFT') }));
+    const openSpy = vi.spyOn(TestBed.inject(ModalService), 'openJoinPassword');
+
+    service.join();
+    flushError(
+      httpMock.expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/join`),
+      409,
+      'Meeting is not IN_PROGRESS',
+    );
+
+    expect(openSpy).not.toHaveBeenCalled();
+    expect(service.actionError()).toBe('Meeting is not IN_PROGRESS');
+  });
+
+  // ── stage ordering & speaking ────────────────────────────────────────────
+
+  it('orders the stage: self first, speakers by recency adjacent, then the rest', () => {
+    service.start(CODE);
+    flushMe(
+      statusFixture({
+        participant: participantFixture('JOINED', { userId: 1, name: 'Alice' }),
+        media: MEDIA,
+      }),
+    );
+    flushRoster([
+      participantFixture('JOINED', { userId: 1, name: 'Alice' }),
+      participantFixture('JOINED', {
+        userId: 2,
+        name: 'Bob',
+        speaking: true,
+        lastSpeakingAt: '2026-10-02T09:00:02',
+      }),
+      participantFixture('JOINED', {
+        userId: 3,
+        name: 'Carol',
+        speaking: true,
+        lastSpeakingAt: '2026-10-02T09:00:05',
+      }),
+      participantFixture('JOINED', { userId: 4, name: 'Dan' }),
+      participantFixture('JOINED', { userId: 5, name: 'Eve' }),
+    ]);
+    flushChat();
+
+    expect(service.stageParticipants().map((p) => p.userId)).toEqual([1, 3, 2, 4, 5]);
+  });
+
+  it('keeps roster order for the stage when self is not on it yet', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster([participantFixture('JOINED', { userId: 3 }), participantFixture('JOINED', { userId: 4 })]);
+    flushChat();
+
+    expect(service.stageParticipants().map((p) => p.userId)).toEqual([3, 4]);
+  });
+
+  it('runs mic analysis while joined+unmuted and PATCHes speaking optimistically', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+    TestBed.flushEffects();
+    expect(speechMock.start).toHaveBeenCalled();
+    speechMock.start.mockClear();
+    speechMock.stop.mockClear();
+
+    speechMock.speaking.set(true);
+    TestBed.flushEffects();
+    const patch = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/speaking`,
+    );
+    expect(patch.request.body).toEqual({ speaking: true });
+    patch.flush({ messag: 'Speaking state updated' });
+    expect(service.me()?.speaking).toBe(true); // optimistic self flip
+
+    // Muting stops the analysis and clears the flag locally (server clamps too).
+    service.setSelfMuted(true);
+    httpMock
+      .expectOne((r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/mute`)
+      .flush({ messag: 'Mute state updated' });
+    TestBed.flushEffects();
+    expect(speechMock.stop).toHaveBeenCalled();
+    expect(service.me()?.speaking).toBe(false);
+  });
+
+  it('polls the roster every 2.5 s while the chat cycle stays at 5 s', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster(); // the join-time fetch
+    flushChat(); // one-shot history load
+    expect(pending('GET', '/roster')).toHaveLength(0);
+
+    vi.advanceTimersByTime(2499);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA })); // /me at 2 s
+    expect(pending('GET', '/roster')).toHaveLength(0);
+    vi.advanceTimersByTime(1); // roster chain tick at 2.5 s
+    // match() consumes — capture once, assert on it, flush from the capture.
+    const tick = pending('GET', '/roster');
+    expect(tick).toHaveLength(1);
+    for (const request of tick) {
+      request.flush([]);
+    }
+
+    vi.advanceTimersByTime(2499);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA })); // /me at 4 s
+    expect(pending('GET', '/roster')).toHaveLength(0);
+    expect(pending('GET', '/chat')).toHaveLength(0); // reconcile belongs to the 5 s chain
+    vi.advanceTimersByTime(1); // 5 s: roster tick + chat reconcile together
+    flushRoster(); // asserts nothing — but afterEach.verify proves exactly one fired
+    flushChat();
   });
 });

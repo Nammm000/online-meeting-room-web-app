@@ -67,6 +67,7 @@
     >
       <i
         class="icon-18 {{ participant.muted ? 'mic-off' : 'mic' }} roster__mic"
+        [class.roster__mic--speaking]="participant.speaking && !participant.muted"
         [title]="langService.t(participant.muted ? 'meetingRoom.mute' : 'meetingRoom.unmute')"
         aria-hidden="true"
       ></i>

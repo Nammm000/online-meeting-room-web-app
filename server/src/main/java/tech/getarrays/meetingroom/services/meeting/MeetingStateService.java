@@ -2,6 +2,7 @@ package tech.getarrays.meetingroom.services.meeting;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tech.getarrays.meetingroom.dto.meeting.CreateMeetingRequest;
@@ -34,13 +35,16 @@ public class MeetingStateService {
     private final MeetingRepo meetingRepo;
     private final MeetingParticipantRepo participantRepo;
     private final JoinCodeGenerator joinCodeGenerator;
+    private final PasswordEncoder passwordEncoder;
 
     public MeetingStateService(MeetingRepo meetingRepo,
                                MeetingParticipantRepo participantRepo,
-                               JoinCodeGenerator joinCodeGenerator) {
+                               JoinCodeGenerator joinCodeGenerator,
+                               PasswordEncoder passwordEncoder) {
         this.meetingRepo = meetingRepo;
         this.participantRepo = participantRepo;
         this.joinCodeGenerator = joinCodeGenerator;
+        this.passwordEncoder = passwordEncoder;
     }
 
     // ── meeting lifecycle ────────────────────────────────────────────────────
@@ -63,6 +67,8 @@ public class MeetingStateService {
                 .scheduledEndAt(request.scheduledEndAt())
                 .waitingRoomEnabled(Boolean.TRUE.equals(request.waitingRoomEnabled()))
                 .muteOnEntry(Boolean.TRUE.equals(request.muteOnEntry()))
+                .passwordHash(request.password() == null || request.password().isBlank()
+                        ? null : passwordEncoder.encode(request.password().trim()))
                 .build();
         meeting = saveWithFreshJoinCode(meeting);
 
@@ -179,6 +185,7 @@ public class MeetingStateService {
         if (participant.getStatus() == ParticipantStatus.JOINED || participant.getStatus() == ParticipantStatus.WAITING) {
             participant.setStatus(ParticipantStatus.REMOVED);
             participant.setLastLeftAt(LocalDateTime.now());
+            participant.setSpeaking(false);
         }
         return participantRepo.save(participant);
     }
@@ -191,6 +198,7 @@ public class MeetingStateService {
                 .ifPresent(participant -> {
                     participant.setStatus(ParticipantStatus.LEFT);
                     participant.setLastLeftAt(LocalDateTime.now());
+                    participant.setSpeaking(false);
                     participantRepo.save(participant);
                 });
     }
@@ -199,6 +207,20 @@ public class MeetingStateService {
     public void setMuted(Long meetingId, Long userId, boolean muted) {
         MeetingParticipant participant = requireParticipant(meetingId, userId);
         participant.setMuted(muted);
+        if (muted) {
+            participant.setSpeaking(false); // a muted mic cannot speak — the clamp contract
+        }
+        participantRepo.save(participant);
+    }
+
+    /** Self speaking state from the client's local mic analysis; lastSpeakingAt stamps only the rising edge. */
+    @Transactional
+    public void setSpeaking(Long meetingId, Long userId, boolean speaking) {
+        MeetingParticipant participant = requireParticipant(meetingId, userId);
+        if (speaking && !participant.isSpeaking()) {
+            participant.setLastSpeakingAt(LocalDateTime.now());
+        }
+        participant.setSpeaking(speaking);
         participantRepo.save(participant);
     }
 
@@ -232,6 +254,7 @@ public class MeetingStateService {
         participant.setLastJoinedAt(now);
         participant.setJoinCount(participant.getJoinCount() + 1);
         participant.setMuted(muted);
+        participant.setSpeaking(false); // rejoin/admit hygiene — a stale flag must not survive a session gap
         participant.setStatus(ParticipantStatus.JOINED);
     }
 

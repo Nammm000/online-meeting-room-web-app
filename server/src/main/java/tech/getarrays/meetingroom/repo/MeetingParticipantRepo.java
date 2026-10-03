@@ -25,13 +25,16 @@ public interface MeetingParticipantRepo extends JpaRepository<MeetingParticipant
     List<MeetingParticipant> findByMeetingIdAndStatus(@Param("meetingId") Long meetingId,
                                                       @Param("status") ParticipantStatus status);
 
+    /** PM recipient check: has this user ever touched the meeting (any status)? */
+    boolean existsByMeetingIdAndUserId(@Param("meetingId") Long meetingId, @Param("userId") Long userId);
+
     /** "Meetings I attended" and the source for user-deletion cleanup. */
     List<MeetingParticipant> findByUserId(@Param("userId") Long userId);
 
     /** Meeting end: bulk-move every participant from one status to another in one statement (e.g. JOINED → LEFT). */
     @Transactional
     @Modifying
-    @Query("update MeetingParticipant p set p.status = :newStatus, p.lastLeftAt = :leftAt " +
+    @Query("update MeetingParticipant p set p.status = :newStatus, p.lastLeftAt = :leftAt, p.speaking = false " +
            "where p.meeting.id = :meetingId and p.status = :oldStatus")
     Integer updateStatusForMeeting(@Param("meetingId") Long meetingId,
                                    @Param("oldStatus") ParticipantStatus oldStatus,
