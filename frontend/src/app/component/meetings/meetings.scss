@@ -1,0 +1,35 @@
+// Toolbar + title-cell stack — table/badge/banner chrome is global (page.scss, table.scss).
+
+.page-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.copied-hint {
+  font-size: 0.875rem;
+  color: var(--success-text);
+}
+
+.meeting-title-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  min-width: 12rem;
+
+  &__title {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+
+  &__description {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 22rem;
+  }
+}

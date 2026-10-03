@@ -8,6 +8,8 @@ export interface Menu {
   icon: string; // glyph class from src/scss/icon.scss, rendered as `icon-18 {icon}`
   /** '' = any authenticated user; 'ROLE_ADMIN' = admins only. */
   role: "" | "ROLE_ADMIN";
+  /** false = keep this link highlighted on child routes too (e.g. a meeting room under /meetings). */
+  exact?: boolean;
 }
 
 const MENU_ITEMS: Menu[] = [
@@ -17,6 +19,14 @@ const MENU_ITEMS: Menu[] = [
     description: "Overview and quick access to your assets.",
     icon: "grid",
     role: "",
+  },
+  {
+    path: "meetings",
+    labelKey: "menu.meetings",
+    description: "Create, join and manage your meetings.",
+    icon: "video",
+    role: "",
+    exact: false,
   },
   {
     path: "pdf-files",

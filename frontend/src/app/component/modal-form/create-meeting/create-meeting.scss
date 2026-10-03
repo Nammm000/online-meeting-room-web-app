@@ -1,0 +1,24 @@
+// Radio pair + checkbox stack — everything else is global modal.scss chrome.
+.radio-row {
+  display: flex;
+  gap: 1.25rem;
+}
+
+.radio-option,
+.checkbox-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  color: var(--text-primary);
+
+  input {
+    accent-color: var(--brand);
+  }
+}
+
+.checkbox-option {
+  + .checkbox-option {
+    margin-top: 0.5rem;
+  }
+}

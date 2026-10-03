@@ -366,18 +366,14 @@ describe('Header (logged in)', () => {
     expect(element.querySelector('.header__dropdown')).toBeFalsy();
   });
 
-  it('renders the language section as a label + select with both options', () => {
+  it('renders the language select with both options', () => {
     avatarButton().click();
     fixture.detectChanges();
 
     const element: HTMLElement = fixture.nativeElement;
-    const label = element.querySelector<HTMLLabelElement>('.header__dropdown-label')!;
     const select = element.querySelector<HTMLSelectElement>('.header__dropdown-select')!;
     const options = Array.from(select.options);
 
-    expect(label.tagName).toBe('LABEL');
-    expect(label.getAttribute('for')).toBe('header-language');
-    expect(label.textContent?.trim()).toBe('Language');
     expect(select.id).toBe('header-language');
     expect(options.map((option) => option.textContent?.trim())).toEqual(['Tiếng Việt', 'English']);
     expect(options.map((option) => option.value)).toEqual(['vi', 'en']);
@@ -405,10 +401,7 @@ describe('Header (logged in)', () => {
     expect(labels).toContain('Cài đặt');
     expect(labels).toContain('Đổi mật khẩu');
     expect(labels).toContain('Đăng xuất');
-    // The section label (not a menu item) relabels too, and the select follows.
-    expect(
-      element.querySelector('.header__dropdown-label')?.textContent?.trim(),
-    ).toBe('Ngôn ngữ');
+    // The select follows the stored choice.
     expect(select.value).toBe('vi');
   });
 

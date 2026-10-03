@@ -1,0 +1,425 @@
+import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, TestRequest, provideHttpClientTesting } from '@angular/common/http/testing';
+import { environment } from '../../environments/environment';
+import { AuthService } from 'service/auth.service';
+import { MeetingRoomService } from 'service/meeting-room.service';
+import type { JwtClaims } from 'util/jwt-util';
+import type {
+  ChatMessage,
+  MediaCredentials,
+  Meeting,
+  MyMeetingStatus,
+  Participant,
+  ParticipantStatus,
+} from 'model/meeting.model';
+import type { PagedResponse } from 'model/paged-response.model';
+
+const CODE = 'ABCDEFGHJK';
+const BASE_URL = `${environment.apiUrl}/meetings/${CODE}`;
+
+// ── fixtures ─────────────────────────────────────────────────────────────
+
+function base64Url(input: string): string {
+  const bytes = new TextEncoder().encode(input);
+  let binary = '';
+  bytes.forEach((b) => (binary += String.fromCharCode(b)));
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function makeToken(claims: Partial<JwtClaims> = {}): string {
+  const full: JwtClaims = {
+    sub: 'host@test.com',
+    role: 'ROLE_USER',
+    iat: 1000,
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    ...claims,
+  };
+  return `header.${base64Url(JSON.stringify(full))}.signature`;
+}
+
+const MEDIA: MediaCredentials = {
+  liveKitUrl: 'http://localhost:7880',
+  liveKitToken: 'tok',
+  janusWsUrl: 'ws://localhost:8188',
+  janusRoomId: 1,
+  janusPin: 'pin',
+  muted: false,
+};
+
+function participantFixture(
+  status: ParticipantStatus,
+  overrides: Partial<Participant> = {},
+): Participant {
+  return {
+    userId: 2,
+    name: 'Bob',
+    role: 'PARTICIPANT',
+    status,
+    muted: false,
+    joinCount: 1,
+    firstJoinedAt: null,
+    lastJoinedAt: null,
+    lastLeftAt: null,
+    admittedByName: null,
+    ...overrides,
+  };
+}
+
+function statusFixture(options: {
+  participant: Participant | null;
+  meetingStatus?: Meeting['status'];
+  media?: MediaCredentials | null;
+}): MyMeetingStatus {
+  return {
+    meeting: {
+      id: 1,
+      joinCode: CODE,
+      title: 'Standup',
+      description: null,
+      type: 'INSTANT',
+      status: options.meetingStatus ?? 'IN_PROGRESS',
+      scheduledStartAt: null,
+      scheduledEndAt: null,
+      actualStartAt: '2026-10-02T09:00:00',
+      endedAt: null,
+      createdAt: '2026-10-02T08:00:00',
+      waitingRoomEnabled: true,
+      muteOnEntry: false,
+      locked: false,
+      hostId: 1,
+      hostName: 'Alice',
+      media: null,
+    },
+    participant: options.participant,
+    media: options.media ?? null,
+  };
+}
+
+function chatPage(ids: number[], last = true): PagedResponse<ChatMessage> {
+  return {
+    content: ids.map((id) => ({
+      id,
+      senderId: 1,
+      senderName: 'Alice',
+      content: `m${id}`,
+      sentAt: '2026-10-02T09:00:00',
+    })),
+    page: 0,
+    size: 30,
+    totalElements: ids.length,
+    totalPages: 1,
+    first: true,
+    last,
+  };
+}
+
+// ── harness ──────────────────────────────────────────────────────────────
+
+let httpMock: HttpTestingController;
+let service: MeetingRoomService;
+
+/** Pending requests matching a predicate (empty array when none). */
+const pending = (method: string, path: string) =>
+  httpMock.match((r) => r.method === method && r.url === `${BASE_URL}${path}`);
+
+/** Flushes every pending /me poll with the given status. */
+const flushMe = (status: MyMeetingStatus): number => {
+  const requests = pending('GET', '/me');
+  for (const request of requests) {
+    request.flush(status);
+  }
+  return requests.length;
+};
+
+/** Flushes the one-shot history load that follows reaching a joined/ended state. */
+const flushChat = (page: PagedResponse<ChatMessage> = chatPage([])): void => {
+  const requests = pending('GET', '/chat');
+  for (const request of requests) {
+    request.flush(page);
+  }
+};
+
+/** flush(body) alone would be a 200 — errors need the status in the options. */
+const flushError = (request: TestRequest, status: number, message: string): void => {
+  request.flush({ status, message, timeStamp: 1759427449123 }, { status, statusText: message });
+};
+
+describe('MeetingRoomService', () => {
+  beforeEach(async () => {
+    vi.useFakeTimers();
+    await TestBed.configureTestingModule({
+      providers: [provideHttpClient(), provideHttpClientTesting()],
+    });
+    httpMock = TestBed.inject(HttpTestingController);
+    service = TestBed.inject(MeetingRoomService);
+    // Live session, or the constructor's effect undoes start() immediately.
+    TestBed.inject(AuthService).applyAuthenticationResponse({ accessToken: makeToken() });
+  });
+
+  afterEach(() => {
+    service.stop();
+    vi.useRealTimers();
+    httpMock.verify();
+  });
+
+  it('seeds viewState from the initial /me poll', () => {
+    service.start(CODE);
+    expect(service.viewState()).toBe('loading');
+
+    flushMe(
+      statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }),
+    );
+    flushChat();
+    expect(service.viewState()).toBe('joined');
+    expect(service.media()?.liveKitUrl).toBe('http://localhost:7880');
+  });
+
+  it('waits until media appears, then flips to joined', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('WAITING') }));
+    expect(service.viewState()).toBe('waiting');
+
+    vi.advanceTimersByTime(2000);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat();
+    expect(service.viewState()).toBe('joined');
+  });
+
+  it('polls /me every 2 seconds', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('WAITING') }));
+
+    vi.advanceTimersByTime(2000);
+    expect(flushMe(statusFixture({ participant: participantFixture('WAITING') }))).toBe(1);
+
+    vi.advanceTimersByTime(1999);
+    expect(pending('GET', '/me')).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(flushMe(statusFixture({ participant: participantFixture('WAITING') }))).toBe(1);
+  });
+
+  it('maps participant states to their screens', () => {
+    service.start(CODE);
+
+    flushMe(statusFixture({ participant: null }));
+    expect(service.viewState()).toBe('preJoin');
+
+    vi.advanceTimersByTime(2000);
+    flushMe(statusFixture({ participant: participantFixture('LEFT') }));
+    expect(service.viewState()).toBe('preJoin');
+
+    vi.advanceTimersByTime(2000);
+    flushMe(statusFixture({ participant: participantFixture('REMOVED') }));
+    expect(service.viewState()).toBe('removed');
+  });
+
+  it('stops polling on terminal meeting states and keeps chat data', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat(chatPage([1]));
+
+    vi.advanceTimersByTime(2000);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), meetingStatus: 'ENDED' }));
+    expect(service.viewState()).toBe('ended');
+
+    vi.advanceTimersByTime(30_000);
+    expect(pending('GET', '/me')).toHaveLength(0);
+    expect(service.chatMessages().map((m) => m.id)).toEqual([1]);
+  });
+
+  it('stops on a 404 and reports not found', () => {
+    service.start(CODE);
+    flushError(pending('GET', '/me')[0]!, 404, 'Meeting not found');
+
+    expect(service.viewState()).toBe('notFound');
+    vi.advanceTimersByTime(30_000);
+    expect(pending('GET', '/me')).toHaveLength(0);
+  });
+
+  it('backs off after a 429 and recovers on success', () => {
+    service.start(CODE);
+    flushError(pending('GET', '/me')[0]!, 429, 'Too many requests');
+
+    // First backoff equals the base delay: retry at +2 s, failing again.
+    vi.advanceTimersByTime(2000);
+    flushError(pending('GET', '/me')[0]!, 429, 'Too many requests');
+
+    // Second backoff doubles: nothing at +2 s, the retry lands at +4 s.
+    vi.advanceTimersByTime(2000);
+    expect(pending('GET', '/me')).toHaveLength(0);
+    vi.advanceTimersByTime(2000);
+    expect(flushMe(statusFixture({ participant: participantFixture('WAITING') }))).toBe(1);
+
+    // Success restored the base cadence.
+    vi.advanceTimersByTime(2000);
+    expect(flushMe(statusFixture({ participant: participantFixture('WAITING') }))).toBe(1);
+  });
+
+  it('stop() silences every loop', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat();
+
+    service.stop();
+    vi.advanceTimersByTime(60_000);
+    expect(
+      httpMock.match((r) => r.url?.startsWith(`${environment.apiUrl}/meetings`) ?? false),
+    ).toHaveLength(0);
+  });
+
+  it('join() seats and restarts the loops after a removed halt', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('REMOVED') }));
+
+    service.join();
+    httpMock
+      .expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/join`)
+      .flush(statusFixture({ participant: participantFixture('WAITING') }));
+    expect(service.viewState()).toBe('waiting');
+
+    // Loops re-armed: the next /me poll fires at +2 s.
+    vi.advanceTimersByTime(2000);
+    expect(flushMe(statusFixture({ participant: participantFixture('WAITING') }))).toBe(1);
+  });
+
+  it('leave() stops polling and runs the caller back', () => {
+    let navigated = false;
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat();
+
+    service.leave(() => {
+      navigated = true;
+    });
+    httpMock
+      .expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/leave`)
+      .flush({ messag: 'Left the meeting' });
+
+    expect(navigated).toBe(true);
+    vi.advanceTimersByTime(60_000);
+    expect(pending('GET', '/me')).toHaveLength(0);
+  });
+
+  it('admit fires the endpoint then refreshes roster and lobby for a host', () => {
+    service.start(CODE);
+    const hostStatus = statusFixture({
+      participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
+      media: MEDIA,
+    });
+    flushMe(hostStatus);
+    flushChat();
+    expect(service.canModerate()).toBe(true);
+
+    service.admitUser(2);
+    httpMock
+      .expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/lobby/2/admit`)
+      .flush({ messag: 'Participant admitted' });
+
+    // Row-action success triggers an immediate secondary refresh.
+    pending('GET', '/roster')[0]!.flush([participantFixture('JOINED')]);
+    pending('GET', '/lobby')[0]!.flush([participantFixture('WAITING')]);
+    flushChat(chatPage([5]));
+    expect(service.actingUserId()).toBeNull();
+    expect(service.roster()).toHaveLength(1);
+    expect(service.lobby()).toHaveLength(1);
+  });
+
+  it('self-mute flips the local participant immediately', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat();
+
+    service.setSelfMuted(true);
+    httpMock
+      .expectOne((r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/mute`)
+      .flush({ messag: 'Mute state updated' });
+
+    expect(service.me()?.muted).toBe(true);
+  });
+
+  it('surfaces a row-action failure via actionError', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat();
+
+    service.muteParticipant(3, true);
+    flushError(
+      httpMock.expectOne((r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/3/mute`),
+      409,
+      'Host cannot be muted',
+    );
+
+    expect(service.actionError()).toBe('Host cannot be muted');
+    expect(service.actingUserId()).toBeNull();
+  });
+
+  it('reconciles chat: appends new messages and drops in-window deletions', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat(chatPage([3, 2, 1]));
+    expect(service.chatMessages().map((m) => m.id)).toEqual([1, 2, 3]);
+
+    // /me polls at +2 s/+4 s, then the 5 s secondary: roster → chat (no
+    // lobby — the fixture participant is not a moderator).
+    vi.advanceTimersByTime(5000);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    pending('GET', '/roster')[0]!.flush([]);
+    flushChat(chatPage([4, 3, 1]));
+    expect(service.chatMessages().map((m) => m.id)).toEqual([1, 3, 4]);
+  });
+
+  it('sendChat appends the 201 message without duplicating a reconciled copy', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat(chatPage([1]));
+
+    service.sendChat('hello');
+    httpMock
+      .expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/chat`)
+      .flush({ id: 2, senderId: 2, senderName: 'Bob', content: 'hello', sentAt: '2026-10-02T09:01:00' });
+    expect(service.chatMessages().map((m) => m.id)).toEqual([1, 2]);
+
+    // A later reconcile delivering the same id must not duplicate it.
+    vi.advanceTimersByTime(5000);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    pending('GET', '/roster')[0]!.flush([]);
+    flushChat(chatPage([2, 1]));
+    expect(service.chatMessages().map((m) => m.id)).toEqual([1, 2]);
+  });
+
+  it('loadOlderChat prepends the next page in ascending order', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    const first = chatPage([4, 3], false);
+    first.totalPages = 2;
+    first.totalElements = 4;
+    flushChat(first);
+    expect(service.chatHasMore()).toBe(true);
+
+    service.loadOlderChat();
+    const older = httpMock.expectOne(
+      (r) => r.method === 'GET' && r.url === `${BASE_URL}/chat` && r.params.get('page') === '1',
+    );
+    older.flush(chatPage([2, 1]));
+    expect(service.chatMessages().map((m) => m.id)).toEqual([1, 2, 3, 4]);
+    expect(service.chatHasMore()).toBe(false);
+  });
+
+  it('endMeeting flips the local state to ended and halts the loops', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushChat();
+
+    service.endMeeting();
+    httpMock
+      .expectOne((r) => r.method === 'PATCH' && r.url === `${environment.apiUrl}/meetings/1/end`)
+      .flush(statusFixture({ participant: participantFixture('JOINED'), meetingStatus: 'ENDED' }).meeting);
+
+    expect(service.viewState()).toBe('ended');
+    vi.advanceTimersByTime(30_000);
+    expect(pending('GET', '/me')).toHaveLength(0);
+  });
+});

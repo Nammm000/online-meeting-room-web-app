@@ -1,0 +1,80 @@
+@if (isVisible()) {
+<div class="modal-backdrop" (click)="close()"></div>
+
+<div class="modal-container" appAutoHideScrollbar>
+  <div class="modal-header form-header">
+    <h2 class="modal-title">{{ langService.t('joinMeeting.title') }}</h2>
+    <button class="close-button" (click)="close()">
+      <span class="close-icon">&times;</span>
+    </button>
+  </div>
+
+  <div class="modal-content form-content">
+    <form class="modal-form" (ngSubmit)="find()">
+      <div class="form-group">
+        <label for="join-code">{{ langService.t('joinMeeting.codeLabel') }}</label>
+        <input
+          type="text"
+          id="join-code"
+          name="code"
+          [(ngModel)]="code"
+          required
+          autocomplete="off"
+          spellcheck="false"
+          class="code-input"
+          [placeholder]="langService.t('joinMeeting.codePlaceholder')"
+        />
+      </div>
+
+      <button
+        type="submit"
+        class="secondary-button"
+        [disabled]="!canFind()"
+      >
+        {{ langService.t('joinMeeting.find') }}
+      </button>
+    </form>
+
+    @if (finding()) {
+    <p class="loading-text">{{ langService.t('joinMeeting.finding') }}</p>
+    }
+
+    @if (findError()) {
+    <p class="error-message">{{ findError() }}</p>
+    }
+
+    @if (found(); as meeting) {
+    <div class="meeting-preview">
+      <p class="meeting-preview__title">{{ meeting.title }}</p>
+      <p class="meeting-preview__meta">
+        {{ langService.t('meetings.host') }}: {{ meeting.hostName }}
+        · {{ langService.t('meetings.type') }}:
+        {{ langService.t(typeLabel(meeting.type)) }}
+      </p>
+      <p class="meeting-preview__meta">
+        {{ langService.t('common.status') }}:
+        <span class="badge badge--{{ meeting.status.toLowerCase() }}">
+          {{ langService.t(statusLabel(meeting.status)) }}
+        </span>
+      </p>
+      @if (meeting.scheduledStartAt) {
+      <p class="meeting-preview__meta">
+        {{ langService.t('createMeeting.startAtLabel') }}:
+        {{ customFormattedDate(meeting.scheduledStartAt) }}
+      </p>
+      }
+      @if (meeting.waitingRoomEnabled) {
+      <p class="meeting-preview__hint">{{ langService.t('joinMeeting.waitingRoomHint') }}</p>
+      }
+      <button
+        type="button"
+        class="submit-button"
+        (click)="enterRoom()"
+      >
+        {{ langService.t('joinMeeting.enter') }}
+      </button>
+    </div>
+    }
+  </div>
+</div>
+}

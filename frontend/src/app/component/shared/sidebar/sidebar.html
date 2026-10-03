@@ -14,7 +14,7 @@
       class="sidebar__link"
       [routerLink]="['/' + item.path]"
       routerLinkActive="sidebar__link--active"
-      [routerLinkActiveOptions]="{ exact: true }"
+      [routerLinkActiveOptions]="{ exact: item.exact !== false }"
       [title]="langService.t(item.labelKey)"
       (click)="closeDrawer()"
     >

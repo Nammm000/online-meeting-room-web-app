@@ -1,0 +1,234 @@
+<div class="page meeting-room">
+  @switch (roomService.viewState()) {
+  @case ('loading') {
+  <p class="loading-text">Loading…</p>
+  }
+  @case ('idle') {
+  <p class="loading-text">Loading…</p>
+  }
+  @case ('notFound') {
+  <div class="room-state">
+    <h1 class="room-state__title">{{ langService.t('meetingRoom.notFoundTitle') }}</h1>
+    <p class="room-state__hint">{{ langService.t('meetingRoom.notFoundHint') }}</p>
+    <a routerLink="/meetings" class="secondary-button room-state__action">
+      {{ langService.t('meetingRoom.backToMeetings') }}
+    </a>
+  </div>
+  }
+  @case ('preJoin') {
+  <div class="room-state">
+    <h1 class="room-state__title">{{ roomService.meeting()?.title }}</h1>
+    <p class="room-state__meta">
+      <span class="badge badge--{{ roomService.meeting()!.status.toLowerCase() }}">
+        {{ langService.t(statusLabel(roomService.meeting()!.status)) }}
+      </span>
+      @if (roomService.meeting()?.locked) {
+      <span class="badge badge--locked">
+        <i class="icon-18 lock" aria-hidden="true"></i>
+        {{ langService.t('meetingRoom.locked') }}
+      </span>
+      }
+    </p>
+    <p class="room-state__hint">{{ langService.t('meetingRoom.preJoinHint') }}</p>
+    @if (roomService.actionError()) {
+    <p class="error-banner">{{ roomService.actionError() }}</p>
+    }
+    <button
+      type="button"
+      class="submit-button room-state__action"
+      [disabled]="roomService.joining()"
+      (click)="join()"
+    >
+      {{ langService.t(isRejoin() ? 'meetingRoom.rejoin' : 'meetingRoom.join') }}
+    </button>
+  </div>
+  }
+  @case ('waiting') {
+  <div class="room-state">
+    <i class="icon-18 refresh-cw room-state__icon" aria-hidden="true"></i>
+    <h1 class="room-state__title">{{ langService.t('meetingRoom.waitingTitle') }}</h1>
+    <p class="room-state__hint">{{ langService.t('meetingRoom.waitingHint') }}</p>
+    <p class="room-state__meta">{{ roomService.meeting()?.title }}</p>
+  </div>
+  }
+  @case ('removed') {
+  <div class="room-state">
+    <h1 class="room-state__title">{{ langService.t('meetingRoom.removedTitle') }}</h1>
+    <p class="room-state__hint">{{ langService.t('meetingRoom.removedHint') }}</p>
+    <button
+      type="button"
+      class="submit-button room-state__action"
+      [disabled]="roomService.joining()"
+      (click)="join()"
+    >
+      {{ langService.t('meetingRoom.requestRejoin') }}
+    </button>
+    <a routerLink="/meetings" class="secondary-button room-state__action">
+      {{ langService.t('meetingRoom.backToMeetings') }}
+    </a>
+  </div>
+  }
+  @default {
+    <!-- joined / ended / cancelled share the room layout; ended+cancelled add a banner -->
+    @if (roomService.viewState() === 'ended' || roomService.viewState() === 'cancelled') {
+    <div class="room-banner">
+      <h1 class="room-banner__title">
+        {{ langService.t(roomService.viewState() === 'ended' ? 'meetingRoom.endedTitle' : 'meetingRoom.cancelledTitle') }}
+      </h1>
+      <p class="room-banner__hint">{{ langService.t('meetingRoom.endedHint') }}</p>
+    </div>
+    }
+
+    <div class="room-header">
+      <div class="room-header__info">
+        <h1 class="room-header__title">{{ roomService.meeting()?.title }}</h1>
+        <p class="room-header__meta">
+          <span class="badge badge--{{ roomService.meeting()!.status.toLowerCase() }}">
+            {{ langService.t(statusLabel(roomService.meeting()!.status)) }}
+          </span>
+          @if (roomService.meeting()?.locked) {
+          <span class="badge badge--locked">
+            <i class="icon-18 lock" aria-hidden="true"></i>
+            {{ langService.t('meetingRoom.locked') }}
+          </span>
+          }
+          <span class="room-header__code">{{ roomService.meeting()?.joinCode }}</span>
+          <button
+            type="button"
+            class="table-button"
+            [title]="langService.t('meetings.copyCode')"
+            [attr.aria-label]="langService.t('meetings.copyCode')"
+            (click)="copyJoinCode()"
+          >
+            <i class="icon-18 copy"></i>
+          </button>
+        </p>
+      </div>
+      <div class="room-header__actions">
+        @if (roomService.isHost() && roomService.inProgress()) {
+        <button
+          type="button"
+          class="secondary-button"
+          [disabled]="roomService.actingUserId() === 0"
+          (click)="toggleLock()"
+        >
+          <i class="icon-18 {{ roomService.meeting()?.locked ? 'unlock' : 'lock' }}" aria-hidden="true"></i>
+          {{ langService.t(roomService.meeting()?.locked ? 'meetingRoom.unlock' : 'meetingRoom.lock') }}
+        </button>
+        <button
+          type="button"
+          class="secondary-button secondary-button--danger"
+          [disabled]="roomService.ending()"
+          (click)="confirmEndMeeting()"
+        >
+          <i class="icon-18 log-out" aria-hidden="true"></i>
+          {{ langService.t('meetings.end') }}
+        </button>
+        }
+        @if (roomService.viewState() === 'joined') {
+        <button
+          type="button"
+          class="secondary-button"
+          [disabled]="roomService.leaving()"
+          (click)="leave()"
+        >
+          <i class="icon-18 log-out" aria-hidden="true"></i>
+          {{ langService.t('meetingRoom.leave') }}
+        </button>
+        }
+      </div>
+    </div>
+
+    @if (roomService.actionError()) {
+    <p class="error-banner">{{ roomService.actionError() }}</p>
+    }
+
+    <div class="room-layout" [class.room-layout--chat-only]="roomService.viewState() !== 'joined'">
+      @if (roomService.viewState() === 'joined') {
+      <div class="room-stage">
+        <div class="stage-tiles">
+          @for (participant of roomService.roster(); track participant.userId) {
+          <div class="stage-tile" [class.stage-tile--self]="participant.userId === roomService.myUserId()">
+            <div class="stage-tile__avatar" aria-hidden="true">{{ initials(participant.name) }}</div>
+            <p class="stage-tile__name">
+              {{ participant.name }}
+              @if (participant.userId === roomService.myUserId()) {
+              ({{ langService.t('meetingRoom.you') }})
+              }
+            </p>
+            <span class="stage-tile__mic">
+              @if (participant.muted) {
+              <i class="icon-18 mic-off" [title]="langService.t('meetingRoom.mute')" aria-hidden="true"></i>
+              } @else {
+              <i class="icon-18 mic" [title]="langService.t('meetingRoom.unmute')" aria-hidden="true"></i>
+              }
+            </span>
+            <span class="stage-tile__placeholder">{{ langService.t('meetingRoom.videoComingSoon') }}</span>
+          </div>
+          } @empty {
+          <p class="empty-state">{{ langService.t('meetingRoom.chatEmpty') }}</p>
+          }
+        </div>
+
+        <div class="stage-controls">
+          <button
+            type="button"
+            class="stage-controls__button"
+            [class.stage-controls__button--off]="roomService.me()?.muted"
+            [disabled]="roomService.actingUserId() === roomService.myUserId()"
+            (click)="toggleSelfMute()"
+          >
+            <i class="icon-18 {{ roomService.me()?.muted ? 'mic-off' : 'mic' }}" aria-hidden="true"></i>
+            {{ langService.t(roomService.me()?.muted ? 'meetingRoom.unmute' : 'meetingRoom.mute') }}
+          </button>
+          <button
+            type="button"
+            class="stage-controls__button stage-controls__button--disabled"
+            [title]="langService.t('meetingRoom.videoComingSoon')"
+            disabled
+          >
+            <i class="icon-18 video" aria-hidden="true"></i>
+          </button>
+          <button
+            type="button"
+            class="stage-controls__button stage-controls__button--disabled"
+            [title]="langService.t('meetingRoom.screenShareComingSoon')"
+            disabled
+          >
+            <i class="icon-18 copy" aria-hidden="true"></i>
+          </button>
+          <button
+            type="button"
+            class="stage-controls__button stage-controls__button--ghost"
+            (click)="toggleConnectionInfo()"
+            [attr.aria-expanded]="showConnectionInfo()"
+          >
+            <i class="icon-18 user-check" aria-hidden="true"></i>
+            {{ langService.t('meetingRoom.connectionInfo') }}
+          </button>
+        </div>
+
+        @if (showConnectionInfo() && roomService.media(); as media) {
+        <div class="connection-info">
+          <p>{{ langService.t('meetingRoom.mediaLivekit') }}: {{ media.liveKitUrl }}</p>
+          <p>{{ langService.t('meetingRoom.mediaJanus') }}: {{ media.janusWsUrl }}</p>
+          <p>{{ langService.t('meetingRoom.mediaRoomId') }}: {{ media.janusRoomId }}</p>
+          <p>{{ langService.t('meetingRoom.mediaPin') }}: {{ media.janusPin }}</p>
+          <p class="connection-info__token">
+            {{ langService.t('meetingRoom.mediaToken') }}: {{ truncatedToken(media.liveKitToken) }}
+          </p>
+        </div>
+        }
+      </div>
+      }
+
+      <aside class="room-side">
+        @if (roomService.viewState() === 'joined') {
+        <app-meeting-roster />
+        }
+        <app-meeting-chat />
+      </aside>
+    </div>
+  }
+  }
+</div>

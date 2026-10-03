@@ -10,6 +10,20 @@ export const routes: Routes = [
     title: "Dashboard | Asset Manager",
   },
   {
+    path: "meetings",
+    loadComponent: () =>
+      import("component/meetings/meetings").then((m) => m.Meetings),
+    canActivate: [authGuard],
+    title: "Meetings | Asset Manager",
+  },
+  {
+    path: "meetings/:joinCode/room",
+    loadComponent: () =>
+      import("component/meeting-room/meeting-room").then((m) => m.MeetingRoom),
+    canActivate: [authGuard],
+    title: "Meeting Room | Asset Manager",
+  },
+  {
     path: "pdf-files",
     loadComponent: () =>
       import("component/pdf-files/pdf-files").then((m) => m.PdfFiles),

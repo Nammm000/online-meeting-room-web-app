@@ -53,39 +53,23 @@ async function createSidebar(claims: Partial<JwtClaims> = {}): Promise<void> {
 }
 
 describe('Sidebar', () => {
-  it('shows the six non-admin items for ROLE_USER', async () => {
+  it('shows the three non-admin items for ROLE_USER', async () => {
     await createSidebar({ role: 'ROLE_USER' });
 
-    expect(linkLabels()).toEqual([
-      'Dashboard',
-      'Savings Passbooks',
-      'Land Assets',
-      'Cash Assets',
-      'Other Assets',
-      'PDF Files',
-    ]);
+    expect(linkLabels()).toEqual(['Dashboard', 'Meetings', 'PDF Files']);
   });
 
-  it('shows the six non-admin items for ROLE_CUSTOMER too', async () => {
+  it('shows the three non-admin items for ROLE_CUSTOMER too', async () => {
     await createSidebar({ role: 'ROLE_CUSTOMER' });
 
-    expect(linkLabels()).toHaveLength(6);
-    expect(linkLabels()).not.toContain('Currencies');
+    expect(linkLabels()).toHaveLength(3);
+    expect(linkLabels()).not.toContain('Users');
   });
 
-  it('adds the two admin items for ROLE_ADMIN', async () => {
+  it('adds the admin item for ROLE_ADMIN', async () => {
     await createSidebar({ role: 'ROLE_ADMIN' });
 
-    expect(linkLabels()).toEqual([
-      'Dashboard',
-      'Savings Passbooks',
-      'Land Assets',
-      'Cash Assets',
-      'Other Assets',
-      'PDF Files',
-      'Currencies',
-      'Users',
-    ]);
+    expect(linkLabels()).toEqual(['Dashboard', 'Meetings', 'PDF Files', 'Users']);
   });
 
   it('links each item to its route path', async () => {
@@ -101,7 +85,7 @@ describe('Sidebar', () => {
     const icons = Array.from(
       (fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('.sidebar__link i.icon-18'),
     );
-    expect(icons).toHaveLength(6);
+    expect(icons).toHaveLength(3);
     for (const icon of icons) {
       const classNames = icon.className.split(/\s+/);
       expect(classNames).toHaveLength(2);
@@ -127,7 +111,7 @@ describe('Sidebar', () => {
       const nav = el.querySelector('nav.sidebar')!;
       const toggle = el.querySelector<HTMLButtonElement>('.sidebar__toggle')!;
       expect(nav.classList).not.toContain('sidebar--collapsed');
-      expect(el.querySelectorAll('.sidebar__label')).toHaveLength(6);
+      expect(el.querySelectorAll('.sidebar__label')).toHaveLength(3);
 
       toggle.click();
       await fixture.whenStable();
@@ -136,7 +120,7 @@ describe('Sidebar', () => {
       expect(toggle.getAttribute('aria-label')).toBe('Expand navigation');
       expect(toggle.querySelector('i')!.className).toContain('chevron-right');
       // labels stay in the DOM — CSS hides them in icons-only mode
-      expect(el.querySelectorAll('.sidebar__label')).toHaveLength(6);
+      expect(el.querySelectorAll('.sidebar__label')).toHaveLength(3);
 
       toggle.click();
       await fixture.whenStable();

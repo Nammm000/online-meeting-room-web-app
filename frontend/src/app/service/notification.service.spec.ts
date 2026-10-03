@@ -80,6 +80,9 @@ describe("NotificationService", () => {
 
   beforeEach(async () => {
     FakeWebSocket.instances = [];
+    // The service persists the bell to localStorage and restores it in its
+    // constructor — without this, one test's bell leaks into the next.
+    localStorage.removeItem("asset-manager.notifications");
     vi.stubGlobal("WebSocket", FakeWebSocket);
     await TestBed.configureTestingModule({
       providers: [provideHttpClient(), provideHttpClientTesting()],

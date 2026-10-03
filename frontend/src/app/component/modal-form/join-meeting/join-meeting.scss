@@ -1,0 +1,39 @@
+// Join-code field + the inline preview card — modal chrome is global (modal.scss).
+.code-input {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-variant-numeric: tabular-nums;
+}
+
+.meeting-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid var(--border);
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+
+  &__title {
+    margin: 0;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+
+  &__meta {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+  }
+
+  &__hint {
+    margin: 0;
+    font-size: 0.875rem;
+    color: var(--text-muted);
+  }
+
+  .submit-button {
+    margin-top: 0.5rem;
+  }
+}

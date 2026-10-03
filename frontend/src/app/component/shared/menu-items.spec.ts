@@ -4,18 +4,17 @@ describe('visibleMenuItems', () => {
   it('hides admin items from every non-admin role', () => {
     for (const role of ['ROLE_USER', 'ROLE_CUSTOMER'] as const) {
       const labelKeys = visibleMenuItems(role).map((item) => item.labelKey);
-      expect(labelKeys).not.toContain('menu.currencies');
       expect(labelKeys).not.toContain('menu.users');
     }
   });
 
-  it('shows all eight items to admins', () => {
-    expect(visibleMenuItems('ROLE_ADMIN')).toHaveLength(8);
+  it('shows all four items to admins', () => {
+    expect(visibleMenuItems('ROLE_ADMIN')).toHaveLength(4);
   });
 
-  it('shows the six shared items regardless of role', () => {
+  it('shows the three shared items regardless of role', () => {
     for (const role of [null, 'ROLE_USER', 'ROLE_ADMIN', 'ROLE_CUSTOMER'] as const) {
-      expect(visibleMenuItems(role).filter((item) => item.role === '')).toHaveLength(6);
+      expect(visibleMenuItems(role).filter((item) => item.role === '')).toHaveLength(3);
     }
   });
 

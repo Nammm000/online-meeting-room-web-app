@@ -1,0 +1,131 @@
+@if (isVisible()) {
+<div class="modal-backdrop" (click)="close()"></div>
+
+<div class="modal-container" appAutoHideScrollbar>
+  <div class="modal-header form-header">
+    <h2 class="modal-title">{{ langService.t('createMeeting.title') }}</h2>
+    <button class="close-button" (click)="close()">
+      <span class="close-icon">&times;</span>
+    </button>
+  </div>
+
+  <div class="modal-content form-content">
+    <form class="modal-form" (ngSubmit)="submit()">
+      <!-- Title -->
+      <div class="form-group">
+        <label for="meeting-title">{{ langService.t('createMeeting.titleLabel') }}</label>
+        <input
+          type="text"
+          id="meeting-title"
+          name="title"
+          [(ngModel)]="title"
+          required
+          [placeholder]="langService.t('createMeeting.titlePlaceholder')"
+        />
+        @if (titleMissing() && title()) {
+        <p class="error-message">{{ langService.t('createMeeting.titleRequired') }}</p>
+        }
+      </div>
+
+      <!-- Description -->
+      <div class="form-group">
+        <label for="meeting-description">{{ langService.t('createMeeting.descriptionLabel') }}</label>
+        <input
+          type="text"
+          id="meeting-description"
+          name="description"
+          [(ngModel)]="description"
+          [placeholder]="langService.t('createMeeting.descriptionPlaceholder')"
+        />
+      </div>
+
+      <!-- Type -->
+      <div class="form-group">
+        <label>{{ langService.t('createMeeting.typeLabel') }}</label>
+        <div class="radio-row">
+          <label class="radio-option">
+            <input
+              type="radio"
+              name="type"
+              value="INSTANT"
+              [(ngModel)]="type"
+            />
+            {{ langService.t('createMeeting.instant') }}
+          </label>
+          <label class="radio-option">
+            <input
+              type="radio"
+              name="type"
+              value="SCHEDULED"
+              [(ngModel)]="type"
+            />
+            {{ langService.t('createMeeting.scheduled') }}
+          </label>
+        </div>
+      </div>
+
+      <!-- Schedule (SCHEDULED only) -->
+      @if (isScheduled()) {
+      <div class="form-group">
+        <label for="meeting-start">{{ langService.t('createMeeting.startAtLabel') }}</label>
+        <input
+          type="datetime-local"
+          id="meeting-start"
+          name="scheduledStartAt"
+          [(ngModel)]="scheduledStartAt"
+          required
+        />
+      </div>
+      <div class="form-group">
+        <label for="meeting-end">{{ langService.t('createMeeting.endAtLabel') }}</label>
+        <input
+          type="datetime-local"
+          id="meeting-end"
+          name="scheduledEndAt"
+          [(ngModel)]="scheduledEndAt"
+          required
+        />
+        @if (timesMissing() && (scheduledStartAt() || scheduledEndAt())) {
+        <p class="error-message">{{ langService.t('createMeeting.bothTimesRequired') }}</p>
+        }
+        @if (endNotAfterStart()) {
+        <p class="error-message">{{ langService.t('createMeeting.endAfterStart') }}</p>
+        }
+      </div>
+      }
+
+      <!-- Options -->
+      <div class="form-group">
+        <label class="checkbox-option">
+          <input
+            type="checkbox"
+            name="waitingRoomEnabled"
+            [(ngModel)]="waitingRoomEnabled"
+          />
+          {{ langService.t('createMeeting.waitingRoom') }}
+        </label>
+        <label class="checkbox-option">
+          <input
+            type="checkbox"
+            name="muteOnEntry"
+            [(ngModel)]="muteOnEntry"
+          />
+          {{ langService.t('createMeeting.muteOnEntry') }}
+        </label>
+      </div>
+
+      @if (errorMessage()) {
+      <p class="error-message">{{ errorMessage() }}</p>
+      }
+
+      <button
+        type="submit"
+        class="submit-button"
+        [disabled]="!canSubmit()"
+      >
+        {{ langService.t('createMeeting.submit') }}
+      </button>
+    </form>
+  </div>
+</div>
+}

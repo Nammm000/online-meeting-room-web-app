@@ -1,0 +1,70 @@
+<section class="room-panel room-panel--grow">
+  <div class="room-panel__header">
+    <h2 class="room-panel__title">{{ langService.t('meetingRoom.chat') }}</h2>
+    @if (roomService.chatHasMore()) {
+    <button
+      type="button"
+      class="table-button"
+      [title]="langService.t('meetingRoom.loadOlder')"
+      [attr.aria-label]="langService.t('meetingRoom.loadOlder')"
+      [disabled]="roomService.chatLoadingOlder()"
+      (click)="loadOlder()"
+    >
+      <i class="icon-18 refresh-cw"></i>
+    </button>
+    }
+  </div>
+
+  <ul class="chat-list" #chatList appAutoHideScrollbar>
+    @for (message of roomService.chatMessages(); track message.id) {
+    <li
+      class="chat-list__item"
+      [class.chat-list__item--self]="message.senderId === roomService.myUserId()"
+    >
+      <div class="chat-list__head">
+        <span class="chat-list__sender">{{ message.senderName }}</span>
+        <span class="chat-list__time">{{ message.sentAt }}</span>
+        @if (canDelete(message.senderId)) {
+        <button
+          type="button"
+          class="table-button table-button--danger chat-list__delete"
+          [title]="langService.t('meetingRoom.deleteConfirm')"
+          [attr.aria-label]="langService.t('meetingRoom.deleteConfirm')"
+          (click)="confirmDelete(message.id)"
+        >
+          <i class="icon-18 trash"></i>
+        </button>
+        }
+      </div>
+      <p class="chat-list__content">{{ message.content }}</p>
+    </li>
+    } @empty {
+    <li class="chat-list__empty">{{ langService.t('meetingRoom.chatEmpty') }}</li>
+    }
+  </ul>
+
+  @if (roomService.canSendChat()) {
+  <form class="chat-composer" (ngSubmit)="send()">
+    <input
+      type="text"
+      name="draft"
+      [ngModel]="draft()"
+      (ngModelChange)="draft.set($event)"
+      [placeholder]="langService.t('meetingRoom.chatPlaceholder')"
+      autocomplete="off"
+      maxlength="2000"
+    />
+    <button
+      type="submit"
+      class="table-button table-button--confirm"
+      [title]="langService.t('meetingRoom.send')"
+      [attr.aria-label]="langService.t('meetingRoom.send')"
+      [disabled]="!canSubmit()"
+    >
+      <i class="icon-18 send"></i>
+    </button>
+  </form>
+  } @else {
+  <p class="chat-readonly">{{ langService.t('meetingRoom.chatReadOnly') }}</p>
+  }
+</section>

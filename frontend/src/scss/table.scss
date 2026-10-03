@@ -118,6 +118,50 @@
     background: var(--neutral-soft);
     color: var(--text-muted);
   }
+
+  // Meeting statuses (key = status.toLowerCase(): scheduled / in_progress / …)
+  &--scheduled {
+    background: var(--brand-soft);
+    color: var(--brand-text);
+  }
+
+  &--in_progress {
+    background: var(--success-soft);
+    color: var(--success-strong);
+  }
+
+  &--ended {
+    background: var(--neutral-soft);
+    color: var(--text-muted);
+  }
+
+  &--cancelled {
+    background: var(--danger-soft);
+    color: var(--danger-text);
+  }
+
+  &--locked {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: var(--danger-soft);
+    color: var(--danger-text);
+
+    .icon-18 {
+      width: 12px;
+      height: 12px;
+    }
+  }
+
+  &--type-instant {
+    background: var(--neutral-soft);
+    color: var(--text-secondary);
+  }
+
+  &--type-scheduled {
+    background: var(--brand-soft);
+    color: var(--brand-text);
+  }
 }
 
 .role-select {

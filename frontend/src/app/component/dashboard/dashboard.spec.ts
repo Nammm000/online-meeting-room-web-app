@@ -53,24 +53,17 @@ describe('Dashboard', () => {
     expect(component.welcome()).toBe('Welcome, owner@test.com');
   });
 
-  it('shows the six non-admin quick links for ROLE_USER', async () => {
+  it('shows the three non-admin quick links for ROLE_USER', async () => {
     await createDashboard({ role: 'ROLE_USER' });
 
-    expect(quickLinkTitles()).toEqual([
-      'Dashboard',
-      'Savings Passbooks',
-      'Land Assets',
-      'Cash Assets',
-      'Other Assets',
-      'PDF Files',
-    ]);
+    expect(quickLinkTitles()).toEqual(['Dashboard', 'Meetings', 'PDF Files']);
   });
 
-  it('shows all eight quick links for ROLE_ADMIN', async () => {
+  it('shows all four quick links for ROLE_ADMIN', async () => {
     await createDashboard({ role: 'ROLE_ADMIN' });
 
-    expect(quickLinkTitles()).toHaveLength(8);
-    expect(quickLinkTitles()).toContain('Currencies');
+    expect(quickLinkTitles()).toHaveLength(4);
+    expect(quickLinkTitles()).toContain('Meetings');
     expect(quickLinkTitles()).toContain('Users');
   });
 });

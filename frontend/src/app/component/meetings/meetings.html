@@ -1,0 +1,162 @@
+<div class="page">
+  <div class="page-header">
+    <h1 class="page-title">{{ langService.t('menu.meetings') }}</h1>
+    <p class="page-subtitle">{{ langService.t('meetings.subtitle') }}</p>
+  </div>
+
+  <div class="page-toolbar">
+    <button
+      type="button"
+      class="submit-button"
+      (click)="openCreateModal()"
+    >
+      <i class="icon-18 plus" aria-hidden="true"></i>
+      {{ langService.t('meetings.newMeeting') }}
+    </button>
+    <button
+      type="button"
+      class="secondary-button"
+      (click)="openJoinModal()"
+    >
+      <i class="icon-18 copy" aria-hidden="true"></i>
+      {{ langService.t('meetings.joinByCode') }}
+    </button>
+    @if (copiedCode()) {
+    <span class="copied-hint">{{ langService.t('meetings.copied') }}</span>
+    }
+  </div>
+
+  @if (loading()) {
+  <p class="loading-text">Loading…</p>
+  } @else if (errorMessage()) {
+  <p class="error-banner">{{ errorMessage() }}</p>
+  } @else if (!rows().length) {
+  <p class="empty-state">{{ langService.t('meetings.empty') }}</p>
+  } @else {
+  <div class="table-wrapper">
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th></th>
+          <th>{{ langService.t('createMeeting.titleLabel') }}</th>
+          <th>{{ langService.t('meetings.type') }}</th>
+          <th>{{ langService.t('meetings.status') }}</th>
+          <th>{{ langService.t('meetings.schedule') }}</th>
+          <th>{{ langService.t('common.created') }}</th>
+          <th>{{ langService.t('common.actions') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.id) {
+        <tr>
+          <td>{{ $index + 1 }}</td>
+          <td>
+            <div class="meeting-title-cell">
+              <span class="meeting-title-cell__title">{{ row.title }}</span>
+              @if (row.description) {
+              <span class="meeting-title-cell__description">{{ row.description }}</span>
+              }
+            </div>
+          </td>
+          <td>
+            <span class="badge badge--type-{{ row.type.toLowerCase() }}">
+              {{ langService.t(typeLabel(row.type)) }}
+            </span>
+          </td>
+          <td>
+            <span class="badge badge--{{ row.status.toLowerCase() }}">
+              {{ langService.t(statusLabel(row.status)) }}
+            </span>
+            @if (row.locked) {
+            <span class="badge badge--locked">
+              <i class="icon-18 lock" aria-hidden="true"></i>
+              {{ langService.t('meetingRoom.locked') }}
+            </span>
+            }
+          </td>
+          <td>
+            @if (row.type === 'SCHEDULED' && row.scheduledStartAt) {
+            {{ customFormattedDate(row.scheduledStartAt) }}
+            } @else if (row.actualStartAt) {
+            {{ langService.t('meetings.started') }}
+            {{ customFormattedDate(row.actualStartAt) }}
+            } @else {
+            —
+            }
+          </td>
+          <td>
+            @if (row.createdAt) {
+            {{ customFormattedDate(row.createdAt) }}
+            }
+          </td>
+          <td>
+            <div class="table-actions">
+              <button
+                type="button"
+                class="table-button"
+                [title]="langService.t('meetings.enterRoom')"
+                [attr.aria-label]="langService.t('meetings.enterRoom')"
+                (click)="enterRoom(row)"
+              >
+                <i class="icon-18 video"></i>
+              </button>
+              <button
+                type="button"
+                class="table-button"
+                [title]="langService.t('meetings.copyCode') + ': ' + row.joinCode"
+                [attr.aria-label]="langService.t('meetings.copyCode')"
+                (click)="copyJoinCode(row)"
+              >
+                <i class="icon-18 copy"></i>
+              </button>
+              @if (row.status === 'SCHEDULED') {
+              <button
+                type="button"
+                class="table-button table-button--confirm"
+                [title]="langService.t('meetings.start')"
+                [attr.aria-label]="langService.t('meetings.start')"
+                [disabled]="actingId() === row.id"
+                (click)="start(row)"
+              >
+                <i class="icon-18 refresh-cw"></i>
+              </button>
+              <button
+                type="button"
+                class="table-button table-button--danger"
+                [title]="langService.t('meetings.cancel')"
+                [attr.aria-label]="langService.t('meetings.cancel')"
+                [disabled]="actingId() === row.id"
+                (click)="confirmCancel(row)"
+              >
+                <i class="icon-18 trash"></i>
+              </button>
+              }
+              @if (row.status === 'IN_PROGRESS') {
+              <button
+                type="button"
+                class="table-button table-button--danger"
+                [title]="langService.t('meetings.end')"
+                [attr.aria-label]="langService.t('meetings.end')"
+                [disabled]="actingId() === row.id"
+                (click)="confirmEnd(row)"
+              >
+                <i class="icon-18 log-out"></i>
+              </button>
+              }
+            </div>
+          </td>
+        </tr>
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <app-pagination
+    [page]="page()"
+    [totalPages]="totalPages()"
+    [pageSize]="pageSize()"
+    (pageChange)="load($event)"
+    (pageSizeChange)="onPageSizeChange($event)"
+  />
+  }
+</div>

@@ -1,0 +1,123 @@
+<section class="room-panel">
+  <div class="room-panel__header">
+    <h2 class="room-panel__title">
+      {{ langService.t('meetingRoom.participants') }}
+      ({{ roomService.roster().length }})
+    </h2>
+    <button
+      type="button"
+      class="table-button"
+      [title]="langService.t('meetingRoom.refresh')"
+      [attr.aria-label]="langService.t('meetingRoom.refresh')"
+      (click)="roomService.refreshNow()"
+    >
+      <i class="icon-18 refresh-cw"></i>
+    </button>
+  </div>
+
+  @if (roomService.canModerate()) {
+  <div class="lobby">
+    <h3 class="lobby__title">
+      {{ langService.t('meetingRoom.lobby') }}
+      @if (roomService.lobby().length) {
+      <span class="lobby__count">{{ roomService.lobby().length }}</span>
+      }
+    </h3>
+    @if (roomService.lobby().length) {
+    <ul class="lobby__list">
+      @for (person of roomService.lobby(); track person.userId) {
+      <li class="lobby__row">
+        <span class="lobby__name">{{ person.name }}</span>
+        <div class="table-actions">
+          <button
+            type="button"
+            class="table-button table-button--confirm"
+            [title]="langService.t('meetingRoom.admit')"
+            [attr.aria-label]="langService.t('meetingRoom.admit')"
+            [disabled]="roomService.actingUserId() !== null"
+            (click)="admit(person)"
+          >
+            <i class="icon-18 user-check"></i>
+          </button>
+          <button
+            type="button"
+            class="table-button table-button--danger"
+            [title]="langService.t('meetingRoom.deny')"
+            [attr.aria-label]="langService.t('meetingRoom.deny')"
+            [disabled]="roomService.actingUserId() !== null"
+            (click)="deny(person)"
+          >
+            <i class="icon-18 user-x"></i>
+          </button>
+        </div>
+      </li>
+      }
+    </ul>
+    } @else {
+    <p class="lobby__empty">{{ langService.t('meetingRoom.lobbyEmpty') }}</p>
+    }
+  </div>
+  }
+
+  <ul class="roster">
+    @for (participant of roomService.roster(); track participant.userId) {
+    <li
+      class="roster__row"
+      [class.roster__row--self]="participant.userId === roomService.myUserId()"
+    >
+      <i
+        class="icon-18 {{ participant.muted ? 'mic-off' : 'mic' }} roster__mic"
+        [title]="langService.t(participant.muted ? 'meetingRoom.mute' : 'meetingRoom.unmute')"
+        aria-hidden="true"
+      ></i>
+      <span class="roster__name">
+        {{ participant.name }}
+        @if (participant.userId === roomService.myUserId()) {
+        ({{ langService.t('meetingRoom.you') }})
+        }
+      </span>
+      <span class="badge badge--type-{{ participant.role === 'PARTICIPANT' ? 'instant' : 'scheduled' }} roster__role">
+        {{ langService.t(roleLabel(participant.role)) }}
+      </span>
+      <div class="table-actions">
+        @if (canMute(participant)) {
+        <button
+          type="button"
+          class="table-button"
+          [title]="langService.t(participant.muted ? 'meetingRoom.unmute' : 'meetingRoom.mute')"
+          [attr.aria-label]="langService.t(participant.muted ? 'meetingRoom.unmute' : 'meetingRoom.mute')"
+          [disabled]="roomService.actingUserId() !== null"
+          (click)="mute(participant)"
+        >
+          <i class="icon-18 {{ participant.muted ? 'mic' : 'mic-off' }}"></i>
+        </button>
+        }
+        @if (canChangeRole(participant)) {
+        <button
+          type="button"
+          class="table-button table-button--confirm"
+          [title]="langService.t(participant.role === 'COHOST' ? 'meetingRoom.demote' : 'meetingRoom.promote')"
+          [attr.aria-label]="langService.t(participant.role === 'COHOST' ? 'meetingRoom.demote' : 'meetingRoom.promote')"
+          [disabled]="roomService.actingUserId() !== null"
+          (click)="toggleRole(participant)"
+        >
+          <i class="icon-18 {{ participant.role === 'COHOST' ? 'user-x' : 'user-check' }}"></i>
+        </button>
+        }
+        @if (canRemove(participant)) {
+        <button
+          type="button"
+          class="table-button table-button--danger"
+          [title]="langService.t('meetingRoom.removeConfirm')"
+          [attr.aria-label]="langService.t('meetingRoom.removeConfirm')"
+          [disabled]="roomService.actingUserId() !== null"
+          (click)="confirmRemove(participant)"
+        >
+          <i class="icon-18 trash"></i>
+        </button>
+        }
+      </div>
+    </li>
+    }
+  </ul>
+</section>
