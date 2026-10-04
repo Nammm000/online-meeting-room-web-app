@@ -117,7 +117,7 @@ mediasoup is **not rejected** — it is documented as a full alternative in §10
 
 - **Room = `join_code`** (created at meeting start, deleted at end). The internal `meetings.id` is never a room name.
 - **Spring is the only holder of the API key/secret.** It calls `RoomServiceClient` (`createRoom` with a bounded `emptyTimeout` ≈ 15–30 min, `deleteRoom`, `removeParticipant`) and mints short-TTL AccessTokens.
-- **Token grants** (video-only by construction): `roomJoin: true`, `room: <join_code>`, `canSubscribe: true`, `canPublishSources: ["camera", "screen_share"]`, `canPublishData: false`, `identity: <users.id as string>` (the identity is what `removeParticipant` targets), display `name`. Note: the Kotlin SDK has no `canPublishAudio` grant — `CanPublishSources` supersedes it, so restricting sources to camera + screen_share excludes `microphone`/`screen_share_audio` server-side (same effect, different mechanism).
+- **Token grants** (video-only by construction): `roomJoin: true`, `room: <join_code>`, `canSubscribe: true`, `canPublishSources` **derived per participant** from the DB (`camera` iff `video_enabled`, `screen_share` iff the participant holds the share slot; microphone always excluded — the SDK has no `canPublishAudio` grant, `CanPublishSources` supersedes it), `canPublishData: false`, `identity: <users.id as string>` (the identity is what `removeParticipant` targets), display `name`. Grants bind at connect only; a fully restricted participant mints `canPublish: false` (an empty source list would mean ALL sources), and live-session permission changes go through `updateParticipant` entitlement pushes.
 - **Webhooks** → `POST /webhooks/livekit` (path permitted at the Spring level, LiveKit's signed-JWT `Authorization` header validated in the endpoint — same permitAll-delegates-to-the-real-check pattern as `/ws/**`). Consumed events: `participant_joined`, `participant_left`, `room_finished`.
 - **Do-not-use list:** LiveKit's built-in chat, data channels, and participant metadata-as-roster. The app owns chat (`meeting_chat_messages`) and the roster (`meeting_participants`); LiveKit participants are a *projection*, not a source.
 
@@ -189,12 +189,18 @@ HOST/COHOST     Spring                            DB                media server
 
 **JOINED means admitted, not connected** — the DB deliberately has no presence column; connectivity is a LiveKit webhook fact (`participant_joined`), recorded as nothing more than UI state. `muted = mute_on_entry OR prior muted` implements both the setting and mute-survives-rejoin in one expression; the AudioBridge join carries `muted: true` accordingly.
 
-### 5.4 Mute
+### 5.4 Mute & camera
 
 - **Self-mute:** client sends AudioBridge `configure {muted: true}` immediately (latency first — the mic stops feeding the mix at once), then `PATCH` persists `muted = true` so it survives rejoin.
 - **HOST/COHOST mutes another:** authority check → server-side AudioBridge admin `mute` (the mix drops the feeder — the muted client cannot un-muted-by-republishing) → `muted = true`. The victim's mic UI updates via the per-user push channel (same gap as 5.2) or roster poll.
 - **Mute all:** `mute_room` + same DB column for each.
-- **Camera off is client-side track mute on LiveKit only.** `muted` is an *audio-only* column by design; video state is ephemeral presence observable via track events and never persisted.
+- **Camera** is a persisted entitlement, not ephemeral presence: `meeting_participants.video_enabled` (default true) survives rejoin like `muted`. Self toggle and host force-off both first push the **live** permission via LiveKit `updateParticipant` (`applyPublishEntitlements` — camera in/out of `canPublishSources`), then commit the DB flag. Restriction is host-restrict-only (`true` from a moderator → 409 — remote camera-on is a privacy violation); re-enable is the self endpoint alone. Token grants bind at connect only, so the DB-derived per-participant sources on every re-mint self-heal reconnects (and a fully restricted participant mints a hard `canPublish=false` — an empty `canPublishSources` would mean ALL sources).
+
+### 5.4a Screen share (exclusive)
+
+- **Claim:** `PATCH /participants/me/screen-share {sharing:true}` → atomic conditional UPDATE on `meetings.screen_sharer_id` (self-or-free guard; rowcount 0 → 409 with the exact string `"You cannot share your screen while someone else is sharing."`, displayed verbatim by the client). Only after owning the slot does the live session gain the `screen_share` publish entitlement, and the client calls `getDisplayMedia`/publishes.
+- **Release:** self-stop, host stop (`{userId}/screen-share` — restrict-only; target must be the current sharer), the sharer leaving/being removed, meeting end, and user deletion. Entitlement drops before the DB write (§5.4 ordering). The client also PATCHes release when the browser's native "Stop sharing" ends the track.
+- **Propagation:** `MeetingDTO.screenSharerUserId` rides the `/me` poll (~2 s); the roster poll (~2.5 s) reconciles the sharer's name. No data channels exist (`canPublishData=false` by design) — REST is the only cross-client channel.
 
 ### 5.5 Lock
 
@@ -211,7 +217,7 @@ The DB design's rule-4 transaction (`status = ENDED`, `ended_at`, bulk `JOINED �
 ## 6. Client integration (Angular 21)
 
 - **Two PeerConnections behind one facade.** `MeetingMediaService` wraps `service/livekit.service.ts` (npm `livekit-client`) and `service/audio-bridge.service.ts` — a small **hand-rolled typed WebSocket client** speaking Janus's JSON protocol directly; `janus.js` is a global-script library and a poor npm citizen, so it is deliberately not a dependency. The audio protocol surface (session → attach → join → configure → events) is small enough that typed wrappers are cheaper than the shim.
-- **Avatar-when-no-video pattern:** the roster comes from the app's own API (DB-driven), never from LiveKit metadata. A video tile renders **iff** a subscribed remote video track exists and is unmuted; otherwise the tile shows the participant's MinIO avatar with an initials fallback (the header-avatar convention). Gap flagged: `GET /images/avatar` is owner-scoped today — the roster needs other users' avatars via a future `GET /users/{id}/avatar`, streamed through Spring (MinIO is never exposed to the browser, per the api-surface convention).
+- **Avatar-when-no-video pattern:** the roster comes from the app's own API (DB-driven), never from LiveKit metadata. A video tile renders **iff** a subscribed remote camera track exists (on-demand: `autoSubscribe: false`, subscribe on avatar click) or is the viewer's own local camera; otherwise the tile shows the participant's avatar with an initials fallback (the header-avatar convention). The avatar gap is closed: `GET /images/avatar/{userId}` streams any user's avatar through Spring (JWT-gated; MinIO is never exposed to the browser, per the api-surface convention) — clients fetch sequentially with a small gap to respect the 3 req/s rate cap, 404s negative-cache to initials.
 - **SSR/zoneless guards:** the app ships `@angular/ssr` — all media code behind `isPlatformBrowser`; SDK callbacks write into signals.
 - **`environment.ts` additions:** `liveKitUrl`, `janusWsUrl`. Tokens are always fetched from the API at admission time, never embedded in the bundle.
 

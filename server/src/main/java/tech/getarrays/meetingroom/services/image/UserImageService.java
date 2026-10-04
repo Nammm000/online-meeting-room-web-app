@@ -99,7 +99,16 @@ public class UserImageService {
 
     public AvatarData getAvatar() {
         User user = UserUtils.getCurrentUser();
-        UserImage image = userImageRepo.findByUserId(user.getId())
+        return getAvatarOf(user.getId());
+    }
+
+    /**
+     * Streams any user's avatar by id — the roster/stage-tile path. Same
+     * contract as the owner-scoped variant (JWT-gated at the controller);
+     * 404 when that user never uploaded one.
+     */
+    public AvatarData getAvatarOf(Long userId) {
+        UserImage image = userImageRepo.findByUserId(userId)
                 .orElseThrow(() -> new NotFoundException("No avatar uploaded"));
         byte[] data;
         try (InputStream in = minioClient.getObject(GetObjectArgs.builder()

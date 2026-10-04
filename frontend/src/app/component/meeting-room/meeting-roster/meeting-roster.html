@@ -88,6 +88,30 @@
         {{ langService.t(roleLabel(participant.role)) }}
       </span>
       <div class="table-actions">
+        @if (canStopShare(participant)) {
+        <button
+          type="button"
+          class="table-button table-button--confirm"
+          [title]="langService.t('meetingRoom.stopShare')"
+          [attr.aria-label]="langService.t('meetingRoom.stopShare')"
+          [disabled]="roomService.actingUserId() !== null"
+          (click)="roomService.stopParticipantShare(participant.userId)"
+        >
+          <i class="icon-18 monitor"></i>
+        </button>
+        }
+        @if (canStopVideo(participant)) {
+        <button
+          type="button"
+          class="table-button"
+          [title]="langService.t('meetingRoom.stopVideo')"
+          [attr.aria-label]="langService.t('meetingRoom.stopVideo')"
+          [disabled]="roomService.actingUserId() !== null"
+          (click)="roomService.stopParticipantVideo(participant.userId)"
+        >
+          <i class="icon-18 video-off"></i>
+        </button>
+        }
         @if (canLowerHand(participant)) {
         <button
           type="button"

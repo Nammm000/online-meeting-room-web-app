@@ -156,6 +156,7 @@ public class MeetingService {
                 meeting.getType(), meeting.getStatus(), meeting.getScheduledStartAt(), meeting.getScheduledEndAt(),
                 meeting.getActualStartAt(), meeting.getEndedAt(), meeting.getCreatedAt(), meeting.isWaitingRoomEnabled(),
                 meeting.isMuteOnEntry(), meeting.isLocked(), meeting.getPasswordHash() != null,
+                meeting.getScreenSharer() == null ? null : meeting.getScreenSharer().getId(),
                 meeting.getHost().getId(), meeting.getHost().getName(),
                 Objects.requireNonNull(media, "host media expected after create/start"));
     }
@@ -165,6 +166,7 @@ public class MeetingService {
                 meeting.getType(), meeting.getStatus(), meeting.getScheduledStartAt(), meeting.getScheduledEndAt(),
                 meeting.getActualStartAt(), meeting.getEndedAt(), meeting.getCreatedAt(), meeting.isWaitingRoomEnabled(),
                 meeting.isMuteOnEntry(), meeting.isLocked(), meeting.getPasswordHash() != null,
+                meeting.getScreenSharer() == null ? null : meeting.getScreenSharer().getId(),
                 meeting.getHost().getId(), meeting.getHost().getName(), null);
     }
 }

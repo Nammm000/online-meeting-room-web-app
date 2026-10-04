@@ -20,7 +20,8 @@ import java.time.LocalDateTime;
         uniqueConstraints = @UniqueConstraint(name = "uq_meetings_join_code", columnNames = "join_code"),
         indexes = {
                 @Index(name = "ix_meetings_host", columnList = "host_id"),
-                @Index(name = "ix_meetings_status_start", columnList = "status, scheduled_start_at")
+                @Index(name = "ix_meetings_status_start", columnList = "status, scheduled_start_at"),
+                @Index(name = "ix_meetings_screen_sharer", columnList = "screen_sharer_id")
         })
 @Getter
 @Setter
@@ -44,6 +45,11 @@ public class Meeting {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "host_id", nullable = false)
     private User host;
+
+    /** The exclusive screen sharer (null = nobody) — claimed atomically via {@code MeetingRepo.claimScreenSharerIfFree}. */
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "screen_sharer_id")
+    private User screenSharer;
 
     @Column(nullable = false, length = 200)
     private String title;

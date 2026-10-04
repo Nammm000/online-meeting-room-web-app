@@ -40,9 +40,14 @@ public class MediaTokenService {
         User user = participant.getUser();
         liveKitMediaService.ensureRoom(meeting.getJoinCode());
         janusAudioBridgeClient.ensureRoom(meeting.getId());
+        // Publish grants derive from the DB on every mint — reconnects
+        // self-heal whatever an entitlements call missed.
+        boolean screenShareAllowed = meeting.getScreenSharer() != null
+                && meeting.getScreenSharer().getId().equals(user.getId());
         return new MediaCredentialsDTO(
                 liveKitProperties.url(),
-                liveKitMediaService.mintToken(user.getId(), user.getName(), meeting.getJoinCode()),
+                liveKitMediaService.mintToken(user.getId(), user.getName(), meeting.getJoinCode(),
+                        participant.isVideoEnabled(), screenShareAllowed),
                 janusProperties.wsUrl(),
                 meeting.getId(),
                 roomSecretDeriver.roomPin(meeting.getId()),

@@ -109,6 +109,7 @@ public class MeetingStateService {
         LocalDateTime now = LocalDateTime.now();
         meeting.setStatus(MeetingStatus.ENDED);
         meeting.setEndedAt(now);
+        meeting.setScreenSharer(null); // the share slot dies with the meeting
         meetingRepo.save(meeting);
         participantRepo.updateStatusForMeeting(meetingId, ParticipantStatus.JOINED, ParticipantStatus.LEFT, now);
         return meeting;
@@ -187,6 +188,7 @@ public class MeetingStateService {
             participant.setLastLeftAt(LocalDateTime.now());
             participant.setSpeaking(false);
             participant.setHandRaised(false);
+            meetingRepo.releaseScreenSharerIf(meetingId, userId);
         }
         return participantRepo.save(participant);
     }
@@ -202,6 +204,7 @@ public class MeetingStateService {
                     participant.setSpeaking(false);
                     participant.setHandRaised(false);
                     participantRepo.save(participant);
+                    meetingRepo.releaseScreenSharerIf(meetingId, userId);
                 });
     }
 
@@ -235,6 +238,30 @@ public class MeetingStateService {
         }
         participant.setHandRaised(handRaised);
         participantRepo.save(participant);
+    }
+
+    /** Camera entitlement — persists across rejoin like {@code muted} (no reset in transitionToJoined). */
+    @Transactional
+    public void setVideoEnabled(Long meetingId, Long userId, boolean videoEnabled) {
+        MeetingParticipant participant = requireParticipant(meetingId, userId);
+        participant.setVideoEnabled(videoEnabled);
+        participantRepo.save(participant);
+    }
+
+    /**
+     * Claims the exclusive screen-share slot atomically. False = someone else
+     * holds it (the caller renders the 409); re-claiming by the current sharer
+     * is idempotently true.
+     */
+    @Transactional
+    public boolean claimScreenShare(Long meetingId, Long userId) {
+        return meetingRepo.claimScreenSharerIfFree(meetingId, userId) > 0;
+    }
+
+    /** Releases the share slot iff this user holds it — idempotent, rowcount ignored. */
+    @Transactional
+    public void releaseScreenShare(Long meetingId, Long userId) {
+        meetingRepo.releaseScreenSharerIf(meetingId, userId);
     }
 
     @Transactional

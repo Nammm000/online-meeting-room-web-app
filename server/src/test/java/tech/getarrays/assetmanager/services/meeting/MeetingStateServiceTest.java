@@ -368,4 +368,55 @@ class MeetingStateServiceTest {
         assertThat(joined.getStatus()).isEqualTo(ParticipantStatus.LEFT);
         assertThat(joined.isHandRaised()).isFalse();
     }
+
+    // ── camera entitlement + exclusive share slot ───────────────────────────
+
+    @Test
+    void videoEnabledSurvivesRejoin() { // host force-off persists like muted
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant left = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.LEFT);
+        left.setJoinCount(1);
+        left.setVideoEnabled(false);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(left));
+
+        MeetingParticipant rejoined = stateService.joinParticipant(m, User.builder().id(9L).build());
+
+        assertThat(rejoined.getStatus()).isEqualTo(ParticipantStatus.JOINED);
+        assertThat(rejoined.isVideoEnabled()).isFalse();
+    }
+
+    @Test
+    void claimScreenShareIsDecidedByTheAtomicRowcount() {
+        when(meetingRepo.claimScreenSharerIfFree(1L, 9L)).thenReturn(1);
+        assertThat(stateService.claimScreenShare(1L, 9L)).isTrue();
+
+        when(meetingRepo.claimScreenSharerIfFree(1L, 2L)).thenReturn(0);
+        assertThat(stateService.claimScreenShare(1L, 2L)).isFalse();
+    }
+
+    @Test
+    void markLeftReleasesTheShareSlot() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant joined = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(joined));
+
+        stateService.markLeftIfJoined(1L, 9L);
+
+        verify(meetingRepo).releaseScreenSharerIf(1L, 9L);
+    }
+
+    @Test
+    void markEndedClearsTheShareSlot() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        m.setScreenSharer(User.builder().id(9L).build());
+        when(meetingRepo.findById(1L)).thenReturn(Optional.of(m));
+
+        Meeting ended = stateService.markEnded(1L);
+
+        assertThat(ended.getScreenSharer()).isNull();
+        verify(participantRepo).updateStatusForMeeting(1L, ParticipantStatus.JOINED,
+                ParticipantStatus.LEFT, ended.getEndedAt());
+    }
 }

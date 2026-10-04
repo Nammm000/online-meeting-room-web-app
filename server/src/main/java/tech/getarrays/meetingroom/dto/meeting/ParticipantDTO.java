@@ -6,15 +6,19 @@ import tech.getarrays.meetingroom.models.meeting.MeetingParticipant.ParticipantS
 import java.time.LocalDateTime;
 
 /**
- * Roster/lobby entry. Note {@code muted} is audio-only by design — camera
- * state is ephemeral presence (LiveKit track events), never persisted.
+ * Roster/lobby entry. {@code muted} is audio-only (the Janus plane);
+ * {@code videoEnabled} is the persisted camera entitlement (a host force-off
+ * survives rejoin, the participant may re-enable). {@code email} feeds the
+ * hover info card on the stage tiles.
  */
 public record ParticipantDTO(
         Long userId,
         String name,
+        String email,
         ParticipantRole role,
         ParticipantStatus status,
         boolean muted,
+        boolean videoEnabled,
         boolean speaking,
         boolean handRaised,
         int joinCount,

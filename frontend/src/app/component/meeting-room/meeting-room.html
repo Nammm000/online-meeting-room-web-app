@@ -152,10 +152,55 @@
     <div class="room-layout" [class.room-layout--chat-only]="roomService.viewState() !== 'joined'">
       @if (roomService.viewState() === 'joined') {
       <div class="room-stage">
+        @if (roomService.screenShareView(); as share) {
+        <div class="stage-share">
+          <div class="stage-share__bar">
+            <i class="icon-18 monitor" aria-hidden="true"></i>
+            <span>
+              {{ langService.t('meetingRoom.screenShareLabel') }} —
+              {{ share.name !== '' ? share.name : langService.t('meetingRoom.you') }}
+            </span>
+          </div>
+          <video
+            class="stage-share__video"
+            [appVideoTrack]="share.track"
+            autoplay
+            playsinline
+            muted
+          ></video>
+        </div>
+        }
+
         <div class="stage-tiles">
           @for (participant of roomService.stageParticipants(); track participant.userId) {
           <div class="stage-tile" [class.stage-tile--self]="participant.userId === roomService.myUserId()">
-            <div class="stage-tile__avatar" aria-hidden="true">{{ initials(participant.name) }}</div>
+            <button
+              type="button"
+              class="stage-tile__media"
+              [class.stage-tile__media--live]="tileTrack(participant) !== null"
+              [disabled]="participant.userId === roomService.myUserId()"
+              (click)="roomService.toggleTileVideo(participant)"
+              [attr.aria-label]="langService.t(
+                tileTrack(participant) !== null && participant.userId !== roomService.myUserId()
+                  ? 'meetingRoom.hideVideo'
+                  : 'meetingRoom.showVideo'
+              )"
+            >
+              @if (tileTrack(participant); as track) {
+              <video class="stage-tile__video" [appVideoTrack]="track" autoplay playsinline muted></video>
+              } @else {
+              @if (avatarUrlFor(participant); as avatarUrl) {
+              <img
+                class="stage-tile__avatar-img"
+                [src]="avatarUrl"
+                [alt]="participant.name"
+                (error)="noteAvatarError(participant.userId)"
+              />
+              } @else {
+              <span class="stage-tile__avatar" aria-hidden="true">{{ initials(participant.name) }}</span>
+              }
+              }
+            </button>
             <p class="stage-tile__name">
               {{ participant.name }}
               @if (participant.userId === roomService.myUserId()) {
@@ -181,7 +226,11 @@
               <i class="icon-18 hand" [title]="langService.t('meetingRoom.handRaised')" aria-hidden="true"></i>
             </span>
             }
-            <span class="stage-tile__placeholder">{{ langService.t('meetingRoom.videoComingSoon') }}</span>
+            <div class="stage-tile__info" aria-hidden="true">
+              <p class="stage-tile__info-name">{{ participant.name }}</p>
+              <p class="stage-tile__info-role">{{ langService.t(roleLabel(participant.role)) }}</p>
+              <p class="stage-tile__info-email">{{ participant.email }}</p>
+            </div>
           </div>
           } @empty {
           <p class="empty-state">{{ langService.t('meetingRoom.chatEmpty') }}</p>
@@ -211,19 +260,23 @@
           </button>
           <button
             type="button"
-            class="stage-controls__button stage-controls__button--disabled"
-            [title]="langService.t('meetingRoom.videoComingSoon')"
-            disabled
+            class="stage-controls__button"
+            [class.stage-controls__button--off]="roomService.mediaFacade.cameraPublishing()"
+            [disabled]="roomService.actingUserId() === roomService.myUserId()"
+            (click)="toggleSelfVideo()"
           >
-            <i class="icon-18 video" aria-hidden="true"></i>
+            <i class="icon-18 {{ roomService.mediaFacade.cameraPublishing() ? 'video-off' : 'video' }}" aria-hidden="true"></i>
+            {{ langService.t(roomService.mediaFacade.cameraPublishing() ? 'meetingRoom.turnCameraOff' : 'meetingRoom.turnCameraOn') }}
           </button>
           <button
             type="button"
-            class="stage-controls__button stage-controls__button--disabled"
-            [title]="langService.t('meetingRoom.screenShareComingSoon')"
-            disabled
+            class="stage-controls__button"
+            [class.stage-controls__button--active]="roomService.iAmSharing()"
+            [disabled]="roomService.actingUserId() !== null"
+            (click)="toggleSelfScreenShare()"
           >
-            <i class="icon-18 copy" aria-hidden="true"></i>
+            <i class="icon-18 monitor" aria-hidden="true"></i>
+            {{ langService.t(roomService.iAmSharing() ? 'meetingRoom.stopSharing' : 'meetingRoom.shareScreen') }}
           </button>
           <button
             type="button"

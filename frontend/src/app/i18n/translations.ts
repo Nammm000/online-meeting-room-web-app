@@ -162,6 +162,15 @@ const en = {
   "meetingRoom.raiseHand": "Raise hand",
   "meetingRoom.lowerHand": "Lower hand",
   "meetingRoom.handRaised": "Hand raised",
+  "meetingRoom.turnCameraOn": "Turn camera on",
+  "meetingRoom.turnCameraOff": "Turn camera off",
+  "meetingRoom.shareScreen": "Share screen",
+  "meetingRoom.stopSharing": "Stop sharing",
+  "meetingRoom.showVideo": "Show video",
+  "meetingRoom.hideVideo": "Hide video",
+  "meetingRoom.stopVideo": "Turn off camera",
+  "meetingRoom.stopShare": "Stop share",
+  "meetingRoom.screenShareLabel": "Screen share",
   "meetingRoom.you": "you",
   "meetingRoom.roleHost": "Host",
   "meetingRoom.roleCohost": "Co-host",
@@ -186,8 +195,6 @@ const en = {
   "meetingRoom.mediaRoomId": "Janus room",
   "meetingRoom.mediaPin": "PIN",
   "meetingRoom.mediaToken": "LiveKit token (5 min TTL)",
-  "meetingRoom.videoComingSoon": "Video is coming soon",
-  "meetingRoom.screenShareComingSoon": "Screen share is coming soon",
 } as const;
 
 const vi: { [K in keyof typeof en]: string } = {
@@ -345,6 +352,15 @@ const vi: { [K in keyof typeof en]: string } = {
   "meetingRoom.raiseHand": "Giơ tay",
   "meetingRoom.lowerHand": "Hạ tay",
   "meetingRoom.handRaised": "Đã giơ tay",
+  "meetingRoom.turnCameraOn": "Bật camera",
+  "meetingRoom.turnCameraOff": "Tắt camera",
+  "meetingRoom.shareScreen": "Chia sẻ màn hình",
+  "meetingRoom.stopSharing": "Dừng chia sẻ",
+  "meetingRoom.showVideo": "Xem video",
+  "meetingRoom.hideVideo": "Ẩn video",
+  "meetingRoom.stopVideo": "Tắt camera",
+  "meetingRoom.stopShare": "Dừng chia sẻ",
+  "meetingRoom.screenShareLabel": "Chia sẻ màn hình",
   "meetingRoom.you": "bạn",
   "meetingRoom.roleHost": "Chủ trì",
   "meetingRoom.roleCohost": "Đồng chủ trì",
@@ -369,8 +385,6 @@ const vi: { [K in keyof typeof en]: string } = {
   "meetingRoom.mediaRoomId": "Phòng Janus",
   "meetingRoom.mediaPin": "Mã PIN",
   "meetingRoom.mediaToken": "LiveKit token (hiệu lực 5 phút)",
-  "meetingRoom.videoComingSoon": "Video sẽ sớm khả dụng",
-  "meetingRoom.screenShareComingSoon": "Chia sẻ màn hình sẽ sớm khả dụng",
 };
 
 export const translations = { en, vi } as const;

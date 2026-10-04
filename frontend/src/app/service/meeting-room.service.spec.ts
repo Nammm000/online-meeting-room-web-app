@@ -6,6 +6,8 @@ import { environment } from '../../environments/environment';
 import { AuthService } from 'service/auth.service';
 import { MeetingRoomService } from 'service/meeting-room.service';
 import { SpeechDetectionService } from 'service/speech-detection.service';
+import { MeetingMediaService } from 'service/meeting-media.service';
+import { StageAvatarService } from 'service/stage-avatar.service';
 import { ModalService } from 'service/modal.service';
 import type { JwtClaims } from 'util/jwt-util';
 import type {
@@ -57,9 +59,11 @@ function participantFixture(
   return {
     userId: 2,
     name: 'Bob',
+    email: 'bob@t.dev',
     role: 'PARTICIPANT',
     status,
     muted: false,
+    videoEnabled: true,
     speaking: false,
     handRaised: false,
     joinCount: 1,
@@ -78,6 +82,7 @@ function statusFixture(options: {
   meetingStatus?: Meeting['status'];
   hasPassword?: boolean;
   media?: MediaCredentials | null;
+  screenSharerId?: number | null;
 }): MyMeetingStatus {
   return {
     meeting: {
@@ -96,6 +101,7 @@ function statusFixture(options: {
       muteOnEntry: false,
       locked: false,
       hasPassword: options.hasPassword ?? false,
+      screenSharerUserId: options.screenSharerId ?? null,
       hostId: 1,
       hostName: 'Alice',
       media: null,
@@ -130,6 +136,8 @@ function chatPage(ids: number[], last = true): PagedResponse<ChatMessage> {
 let httpMock: HttpTestingController;
 let service: MeetingRoomService;
 let speechMock: ReturnType<typeof makeSpeechMock>;
+let mediaMock: ReturnType<typeof makeMediaMock>;
+let avatarMock: ReturnType<typeof makeAvatarMock>;
 
 /** Pending requests matching a predicate (empty array when none). */
 const pending = (method: string, path: string) =>
@@ -165,6 +173,30 @@ const makeSpeechMock = () => ({
   stop: vi.fn(),
 });
 
+/** MeetingMediaService stand-in — every facade signal + method, inert. */
+const makeMediaMock = () => ({
+  connectionState: signal<'idle' | 'connecting' | 'connected' | 'failed'>('idle'),
+  cameraPublishing: signal(false),
+  screenSharing: signal(false),
+  localCameraTrack: signal<unknown | null>(null),
+  localScreenTrack: signal<unknown | null>(null),
+  remoteCameraTracks: signal<ReadonlyMap<number, unknown>>(new Map()),
+  screenShareTrack: signal<{ userId: number; track: unknown } | null>(null),
+  offerCredentials: vi.fn(),
+  disconnect: vi.fn(),
+  setCameraEnabled: vi.fn(() => Promise.resolve()),
+  setScreenShareEnabled: vi.fn(() => Promise.resolve()),
+  subscribeTo: vi.fn(),
+  unsubscribeFrom: vi.fn(),
+});
+
+const makeAvatarMock = () => ({
+  urls: signal<ReadonlyMap<number, string>>(new Map()),
+  urlFor: vi.fn((): string | null => null),
+  ensureLoaded: vi.fn(),
+  clearAll: vi.fn(),
+});
+
 /** flush(body) alone would be a 200 — errors need the status in the options. */
 const flushError = (request: TestRequest, status: number, message: string): void => {
   request.flush({ status, message, timeStamp: 1759427449123 }, { status, statusText: message });
@@ -174,11 +206,15 @@ describe('MeetingRoomService', () => {
   beforeEach(async () => {
     vi.useFakeTimers();
     speechMock = makeSpeechMock();
+    mediaMock = makeMediaMock();
+    avatarMock = makeAvatarMock();
     await TestBed.configureTestingModule({
       providers: [
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: SpeechDetectionService, useValue: speechMock },
+        { provide: MeetingMediaService, useValue: mediaMock },
+        { provide: StageAvatarService, useValue: avatarMock },
       ],
     });
     httpMock = TestBed.inject(HttpTestingController);
@@ -420,6 +456,153 @@ describe('MeetingRoomService', () => {
     flushRoster([participantFixture('JOINED', { handRaised: false })]);
     flushChat();
     expect(service.actingUserId()).toBeNull();
+  });
+
+  // ── video + exclusive screen share ────────────────────────────────────────
+
+  it('a taken share slot surfaces the exact server message and never captures', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+
+    service.toggleSelfScreenShare();
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/screen-share`,
+    );
+    expect(req.request.body).toEqual({ sharing: true });
+    flushError(req, 409, 'You cannot share your screen while someone else is sharing.');
+
+    expect(service.actionError()).toBe(
+      'You cannot share your screen while someone else is sharing.',
+    );
+    expect(mediaMock.setScreenShareEnabled).not.toHaveBeenCalled();
+    expect(service.actingUserId()).toBeNull();
+  });
+
+  it('a successful share claim starts the capture', async () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+
+    service.toggleSelfScreenShare();
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/screen-share`,
+    );
+    req.flush({ messag: 'Screen share state updated' });
+    await vi.advanceTimersByTimeAsync(0); // settle the facade promise chain
+
+    expect(mediaMock.setScreenShareEnabled).toHaveBeenCalledWith(true);
+    expect(service.actingUserId()).toBeNull();
+  });
+
+  it('holding the slot with no live track releases it (native stop)', () => {
+    service.start(CODE);
+    flushMe(
+      statusFixture({
+        participant: participantFixture('JOINED'),
+        media: MEDIA,
+        screenSharerId: 2,
+      }),
+    );
+    flushRoster();
+    flushChat();
+    mediaMock.connectionState.set('connected');
+    mediaMock.screenSharing.set(false);
+    TestBed.flushEffects();
+
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/screen-share`,
+    );
+    expect(req.request.body).toEqual({ sharing: false });
+    req.flush({ messag: 'Screen share state updated' });
+    expect(service.actingUserId()).toBeNull();
+  });
+
+  it('host-forced camera off stops the local capture without a PATCH', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+    mediaMock.cameraPublishing.set(true);
+    TestBed.flushEffects();
+
+    // The next /me poll (armed at +2 s) reports videoEnabled=false — the host
+    // forced it off.
+    vi.advanceTimersByTime(2000);
+    flushMe(
+      statusFixture({
+        participant: participantFixture('JOINED', { videoEnabled: false }),
+        media: MEDIA,
+      }),
+    );
+    TestBed.flushEffects();
+
+    expect(mediaMock.setCameraEnabled).toHaveBeenCalledWith(false);
+    expect(
+      httpMock.match((r) => r.method === 'PATCH' && r.url?.includes('/video')),
+    ).toHaveLength(0);
+  });
+
+  it('moderator stop-share and camera-off PATCH their endpoints', () => {
+    service.start(CODE);
+    const hostStatus = statusFixture({
+      participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
+      media: MEDIA,
+      screenSharerId: 2,
+    });
+    flushMe(hostStatus);
+    flushRoster();
+    flushChat();
+
+    service.stopParticipantShare(2);
+    const share = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/2/screen-share`,
+    );
+    expect(share.request.body).toEqual({ sharing: false });
+    share.flush({ messag: 'Participant screen share stopped' });
+    flushRoster([participantFixture('JOINED')]);
+
+    service.stopParticipantVideo(2);
+    const video = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/2/video`,
+    );
+    expect(video.request.body).toEqual({ videoEnabled: false });
+    video.flush({ messag: 'Participant video state updated' });
+    flushRoster([participantFixture('JOINED', { videoEnabled: false })]);
+    expect(service.actingUserId()).toBeNull();
+  });
+
+  it('toggleTileVideo subscribes on click and unsubscribes on the second click', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+
+    const remote = participantFixture('JOINED', { userId: 3 });
+    service.toggleTileVideo(remote); // no track yet → subscribe
+    expect(mediaMock.subscribeTo).toHaveBeenCalledWith(3);
+
+    mediaMock.remoteCameraTracks.set(new Map([[3, {}]]));
+    service.toggleTileVideo(remote); // track live → hide
+    expect(mediaMock.unsubscribeFrom).toHaveBeenCalledWith(3);
+
+    service.toggleTileVideo(participantFixture('JOINED')); // self (userId 2) → no-op
+    expect(mediaMock.subscribeTo).toHaveBeenCalledTimes(1);
+    expect(mediaMock.unsubscribeFrom).toHaveBeenCalledTimes(1);
+  });
+
+  it('stop() disconnects the media facade and clears the avatar cache', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+
+    service.stop();
+
+    expect(mediaMock.disconnect).toHaveBeenCalled();
+    expect(avatarMock.clearAll).toHaveBeenCalled();
   });
 
   it('surfaces a row-action failure via actionError', () => {

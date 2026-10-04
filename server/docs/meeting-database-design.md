@@ -81,6 +81,7 @@ Every FK is a plain `REFERENCES ... (id)` with **no `ON DELETE` action** — Hib
 | `mute_on_entry` | boolean | no | false | meeting setting |
 | `locked` | boolean | no | false | no new joins/re-admits while true |
 | `password_hash` | varchar(100) | yes | — | BCrypt hash of the optional join password (null = open meeting). Never serialized — `MeetingDTO` exposes only `hasPassword` |
+| `screen_sharer_id` | bigint | yes | — | FK → `users(id)`, indexed (`ix_meetings_screen_sharer`); **the exclusive screen-share slot** (null = nobody sharing). Claimed atomically via `MeetingRepo.claimScreenSharerIfFree` (rule 10); `MeetingDTO` exposes `screenSharerUserId` on the `/me` status channel only |
 | `created_at` | timestamp | no | — | `@PrePersist` |
 
 The entity also defaults `status` in `@PrePersist`: instant meetings are born `IN_PROGRESS`, scheduled ones `SCHEDULED`.
@@ -99,6 +100,7 @@ One row per (meeting, user). A user re-entering the meeting reuses the same row 
 | `role` | varchar(20) | no | — | enum `ParticipantRole { HOST, COHOST, PARTICIPANT }` (`role` is unreserved — `users.role` already exists) |
 | `status` | varchar(20) | no | — | enum `ParticipantStatus { WAITING, JOINED, LEFT, REMOVED, DENIED, DECLINED }` — **this is the waiting-room state machine** |
 | `muted` | boolean | no | false | current audio state; persisted so it survives rejoin |
+| `video_enabled` | boolean | no | true | camera entitlement; a host force-off persists across rejoin (like `muted`), the participant may re-enable (self-only). Same `@ColumnDefault` requirement as `speaking` despite the true default — `ddl-auto=update` adds NOT NULL columns without a DEFAULT and fails on a non-empty table |
 | `speaking` | boolean | no | false | mic-energy flag from the client's local speech detection; **clamped to false while `muted`** and reset on mute/leave/remove/end/rejoin (rule 8). `@ColumnDefault("false")` is required — `ddl-auto=update` adds NOT NULL columns without a DEFAULT and fails on a non-empty table |
 | `last_speaking_at` | timestamp | yes | — | stamped only on the false→true transition; kept while silent — it sorts simultaneous speakers on the stage |
 | `hand_raised` | boolean | no | false | raised-hand flag toggled by the participant (a moderator may lower it); **no mute clamp** — a raised hand while muted is legitimate — and reset on leave/remove/end/rejoin (rule 9). Same `@ColumnDefault("false")` requirement as `speaking` |
@@ -190,6 +192,7 @@ Rejoins (`LEFT/REMOVED → JOINED`) and re-admits are blocked while `meetings.lo
 7. **Join password gate**: when `meetings.password_hash` is set, `join` rejects any caller except the host account without a password matching the hash (403; missing, blank, or wrong all equal). The gate sits in front of the join state machine and covers rejoins.
 8. **Speaking clamp**: `speaking` is client-reported but never trusted past the mute flag — the service forces it false whenever `muted` becomes true, and resets it on every JOINED transition (rejoin/admit), leave/remove, and the bulk JOINED→LEFT of meeting end (`updateStatusForMeeting` sets it in the same statement). Only JOINED rows render, so a stale flag is invisible anyway; the resets are hygiene for reuse of the row.
 9. **Raised-hand resets**: `hand_raised` follows rule 8's reset sites (every JOINED transition, leave/remove, the meeting-end bulk, and the placeholder reassign of user deletion) **minus the mute clamp** — raising a hand while muted is the primary use case. A moderator (HOST/COHOST) may lower another participant's hand, but the host's own hand cannot be lowered by someone else (409).
+10. **Exclusive screen-share slot**: `meetings.screen_sharer_id` holds the single current sharer. The claim is one atomic conditional UPDATE (`claimScreenSharerIfFree` — `set screen_sharer_id = X where meeting = M and (screen_sharer_id is null or = X)`); rowcount 0 → 409 with the exact client-displayed string `"You cannot share your screen while someone else is sharing."`. Release sites: self-stop, host stop (`stopScreenShare` — restrict-only, target must be the current sharer), leave/remove (`releaseScreenSharerIf`), meeting end (`markEnded` nulls it in the same tx as the bulk), and user deletion (`updateScreenSharerToNull` — the FK has no ON DELETE action). Unlike the participant flags, the slot lives on the meeting row because it is meeting-wide state with exactly one holder. Live-enforcement: the claim/release also flips the LiveKit session's publish entitlements (`updateParticipant`) best-effort; DB-derived token grants self-heal reconnects.
 
 ## 6. User deletion & cleanup
 

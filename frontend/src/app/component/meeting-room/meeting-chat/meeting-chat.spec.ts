@@ -1,9 +1,12 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { signal } from '@angular/core';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { environment } from '../../../../environments/environment';
 import { MeetingChat } from './meeting-chat';
 import { MeetingRoomService } from 'service/meeting-room.service';
+import { MeetingMediaService } from 'service/meeting-media.service';
+import { StageAvatarService } from 'service/stage-avatar.service';
 import { AuthService } from 'service/auth.service';
 import { ModalService } from 'service/modal.service';
 import type { JwtClaims } from 'util/jwt-util';
@@ -44,9 +47,11 @@ const message = (id: number, senderId = 1): ChatMessage => ({
 const participantRow = (userId: number, name: string): Participant => ({
   userId,
   name,
+  email: 'bob@t.dev',
   role: 'PARTICIPANT',
   status: 'JOINED',
   muted: false,
+  videoEnabled: true,
   speaking: false,
   handRaised: false,
   joinCount: 1,
@@ -75,6 +80,7 @@ const joinedStatus: MyMeetingStatus = {
     muteOnEntry: false,
     locked: false,
     hasPassword: false,
+    screenSharerUserId: null,
     hostId: 1,
     hostName: 'Alice',
     media: null,
@@ -82,9 +88,11 @@ const joinedStatus: MyMeetingStatus = {
   participant: {
     userId: 2,
     name: 'Bob',
+    email: 'bob@t.dev',
     role: 'PARTICIPANT',
     status: 'JOINED',
     muted: false,
+    videoEnabled: true,
     speaking: false,
     handRaised: false,
     joinCount: 1,
@@ -122,10 +130,42 @@ describe('MeetingChat', () => {
   let roomService: MeetingRoomService;
   let modalService: ModalService;
 
+  /**
+   * The chat spec drives the real MeetingRoomService — its media/avatar
+   * collaborators must be inert mocks, or the avatar effect fires real
+   * /images/avatar GETs that this spec never flushes (verify() fails).
+   */
+  const mediaFacadeMock = {
+    connectionState: signal<'idle' | 'connecting' | 'connected' | 'failed'>('idle'),
+    cameraPublishing: signal(false),
+    screenSharing: signal(false),
+    localCameraTrack: signal<unknown | null>(null),
+    localScreenTrack: signal<unknown | null>(null),
+    remoteCameraTracks: signal<ReadonlyMap<number, unknown>>(new Map()),
+    screenShareTrack: signal<unknown | null>(null),
+    offerCredentials: vi.fn(),
+    disconnect: vi.fn(),
+    setCameraEnabled: vi.fn(),
+    setScreenShareEnabled: vi.fn(),
+    subscribeTo: vi.fn(),
+    unsubscribeFrom: vi.fn(),
+  };
+  const stageAvatarMock = {
+    urls: signal<ReadonlyMap<number, string>>(new Map()),
+    urlFor: (): null => null,
+    ensureLoaded: vi.fn(),
+    clearAll: vi.fn(),
+  };
+
   beforeEach(async () => {
     await TestBed.configureTestingModule({
       imports: [MeetingChat],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: MeetingMediaService, useValue: mediaFacadeMock },
+        { provide: StageAvatarService, useValue: stageAvatarMock },
+      ],
     }).compileComponents();
 
     fixture = TestBed.createComponent(MeetingChat);

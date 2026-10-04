@@ -1,17 +1,22 @@
 package tech.getarrays.meetingroom.services.media;
 
 import io.livekit.server.AccessToken;
+import io.livekit.server.CanPublish;
 import io.livekit.server.CanPublishData;
 import io.livekit.server.CanPublishSources;
 import io.livekit.server.CanSubscribe;
 import io.livekit.server.RoomJoin;
 import io.livekit.server.RoomName;
 import io.livekit.server.RoomServiceClient;
+import livekit.LivekitModels;
+import livekit.LivekitModels.ParticipantPermission;
+import livekit.LivekitModels.TrackSource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import tech.getarrays.meetingroom.configuration.LiveKitProperties;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -23,14 +28,15 @@ import java.util.List;
  * call failed.
  *
  * Video-only publishing is enforced server-side by the source allowlist
- * (camera + screen_share; microphone excluded) — the SDK has no separate
- * canPublishAudio grant, CanPublishSources supersedes it.
+ * (camera / screen_share per entitlement; microphone always excluded — the
+ * SDK has no separate canPublishAudio grant, CanPublishSources supersedes
+ * it). Token grants bind at connect time only; live-session permission
+ * changes go through {@link #applyPublishEntitlements} (updateParticipant),
+ * and the DB-derived grants on every re-mint self-heal reconnects.
  */
 @Slf4j
 @Service
 public class LiveKitMediaService {
-
-    private static final List<String> PUBLISH_SOURCES = List.of("camera", "screen_share");
 
     private final RoomServiceClient roomServiceClient;
     private final LiveKitProperties properties;
@@ -78,18 +84,70 @@ public class LiveKitMediaService {
         }
     }
 
-    /** Short-TTL video-only access token; identity = users.id (what removeParticipant targets). */
-    public String mintToken(Long userId, String displayName, String joinCode) {
+    /**
+     * Updates a LIVE session's publish rights (token grants bind only at
+     * connect). Participant offline → IOException → WARN + false: the DB flag
+     * still commits and the next minted token carries the restriction —
+     * the same best-effort contract as a host-mute before bridge join.
+     */
+    public boolean applyPublishEntitlements(String joinCode, Long userId,
+                                            boolean cameraAllowed, boolean screenShareAllowed) {
+        try {
+            List<TrackSource> sources = new ArrayList<>();
+            if (cameraAllowed) {
+                sources.add(TrackSource.CAMERA);
+            }
+            if (screenShareAllowed) {
+                sources.add(TrackSource.SCREEN_SHARE);
+            }
+            ParticipantPermission permission = ParticipantPermission.newBuilder()
+                    .setCanSubscribe(true)
+                    .setCanPublish(!sources.isEmpty())
+                    .setCanPublishData(false)
+                    .addAllCanPublishSources(sources)
+                    .build();
+            roomServiceClient.updateParticipant(joinCode, String.valueOf(userId), null, null, permission).execute();
+            return true;
+        } catch (IOException e) {
+            log.warn("LiveKit applyPublishEntitlements failed for {}/user {}: {}", joinCode, userId, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Short-TTL video-only access token; identity = users.id (what
+     * removeParticipant targets). Publish sources are per-entitlement: an
+     * empty allowlist would mean ALL sources in LiveKit, so the fully
+     * restricted participant gets a hard {@code canPublish=false} instead.
+     */
+    public String mintToken(Long userId, String displayName, String joinCode,
+                            boolean cameraAllowed, boolean screenShareAllowed) {
         AccessToken token = new AccessToken(properties.apiKey(), properties.apiSecret());
         token.setIdentity(String.valueOf(userId));
         token.setName(displayName);
         token.setTtl(properties.tokenTtl().toMillis());
-        token.addGrants(
-                new RoomJoin(true),
-                new RoomName(joinCode),
-                new CanSubscribe(true),
-                new CanPublishSources(PUBLISH_SOURCES),
-                new CanPublishData(false));
+        List<String> sources = new ArrayList<>();
+        if (cameraAllowed) {
+            sources.add("camera");
+        }
+        if (screenShareAllowed) {
+            sources.add("screen_share");
+        }
+        if (sources.isEmpty()) {
+            token.addGrants(
+                    new RoomJoin(true),
+                    new RoomName(joinCode),
+                    new CanSubscribe(true),
+                    new CanPublish(false),
+                    new CanPublishData(false));
+        } else {
+            token.addGrants(
+                    new RoomJoin(true),
+                    new RoomName(joinCode),
+                    new CanSubscribe(true),
+                    new CanPublishSources(List.copyOf(sources)),
+                    new CanPublishData(false));
+        }
         return token.toJwt();
     }
 }

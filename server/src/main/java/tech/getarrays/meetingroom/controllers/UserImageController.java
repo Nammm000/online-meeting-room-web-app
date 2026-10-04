@@ -6,6 +6,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -38,6 +39,20 @@ public class UserImageController {
     @GetMapping("/avatar")
     public ResponseEntity<byte[]> getAvatar() {
         UserImageService.AvatarData avatar = userImageService.getAvatar();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(avatar.contentType()))
+                .cacheControl(CacheControl.noCache())
+                .body(avatar.data());
+    }
+
+    /**
+     * Streams any user's avatar — the roster/stage-tile path (the owner-scoped
+     * GET above cannot serve other participants' avatars). JWT-gated by the
+     * default chain; 404 when that user never uploaded one.
+     */
+    @GetMapping("/avatar/{userId}")
+    public ResponseEntity<byte[]> getAvatarOf(@PathVariable Long userId) {
+        UserImageService.AvatarData avatar = userImageService.getAvatarOf(userId);
         return ResponseEntity.ok()
                 .contentType(MediaType.parseMediaType(avatar.contentType()))
                 .cacheControl(CacheControl.noCache())

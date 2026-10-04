@@ -4,9 +4,14 @@ import { ActivatedRoute } from '@angular/router';
 import { MeetingRoomService } from 'service/meeting-room.service';
 import { ModalService } from 'service/modal.service';
 import { LanguageService } from 'service/language.service';
+import { StageAvatarService } from 'service/stage-avatar.service';
 import { MeetingRoster } from 'component/meeting-room/meeting-roster/meeting-roster';
 import { MeetingChat } from 'component/meeting-room/meeting-chat/meeting-chat';
+import { VideoTrackDirective } from 'directive/video-track';
 import { meetingStatusLabel as statusLabel } from 'util/meeting-labels';
+import { participantRoleLabel as roleLabel } from 'util/meeting-labels';
+import type { VideoTrack } from 'service/meeting-media.service';
+import type { Participant } from 'model/meeting.model';
 
 /**
  * The in-meeting view at /meetings/:joinCode/room. Owns no polling itself —
@@ -19,7 +24,7 @@ import { meetingStatusLabel as statusLabel } from 'util/meeting-labels';
  */
 @Component({
   selector: 'app-meeting-room',
-  imports: [RouterLink, MeetingRoster, MeetingChat],
+  imports: [RouterLink, MeetingRoster, MeetingChat, VideoTrackDirective],
   templateUrl: './meeting-room.html',
   styleUrl: './meeting-room.scss',
 })
@@ -31,11 +36,16 @@ export class MeetingRoom implements OnInit {
   protected readonly roomService = inject(MeetingRoomService);
   private readonly modalService = inject(ModalService);
   protected readonly langService = inject(LanguageService);
+  protected readonly stageAvatar = inject(StageAvatarService);
+
+  /** Avatar URLs that failed to load — falls those tiles back to initials. */
+  protected readonly avatarFailed = signal<ReadonlySet<number>>(new Set());
+
+  protected readonly statusLabel = statusLabel;
+  protected readonly roleLabel = roleLabel;
 
   /** Connection-info disclosure (media credentials) — collapsed by default. */
   protected readonly showConnectionInfo = signal(false);
-
-  protected readonly statusLabel = statusLabel;
 
   constructor() {
     this.destroyRef.onDestroy(() => this.roomService.stop());
@@ -87,6 +97,38 @@ export class MeetingRoom implements OnInit {
 
   protected toggleHandRaised(): void {
     this.roomService.setSelfHandRaised(!(this.roomService.me()?.handRaised ?? false));
+  }
+
+  protected toggleSelfVideo(): void {
+    this.roomService.toggleSelfVideo();
+  }
+
+  protected toggleSelfScreenShare(): void {
+    this.roomService.toggleSelfScreenShare();
+  }
+
+  /**
+   * The track a tile renders: own local camera preview while publishing,
+   * a subscribed remote camera otherwise (null → avatar with initials).
+   */
+  protected tileTrack(participant: Participant): VideoTrack | null {
+    const facade = this.roomService.mediaFacade;
+    if (participant.userId === this.roomService.myUserId()) {
+      return facade.cameraPublishing() ? facade.localCameraTrack() : null;
+    }
+    return facade.remoteCameraTracks().get(participant.userId) ?? null;
+  }
+
+  /** Avatar <img> error → initials for that tile (per session). */
+  protected noteAvatarError(userId: number): void {
+    this.avatarFailed.update((failed) => new Set(failed).add(userId));
+  }
+
+  protected avatarUrlFor(participant: Participant): string | null {
+    if (this.avatarFailed().has(participant.userId)) {
+      return null;
+    }
+    return this.stageAvatar.urlFor(participant.userId);
   }
 
   protected copyJoinCode(): void {

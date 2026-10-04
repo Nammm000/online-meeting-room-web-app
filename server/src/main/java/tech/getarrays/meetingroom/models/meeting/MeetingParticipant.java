@@ -65,6 +65,17 @@ public class MeetingParticipant {
     private boolean muted = false;
 
     /**
+     * Camera entitlement; a host force-off persists across rejoin, the
+     * participant may re-enable. ColumnDefault is required — ddl-auto=update
+     * adds NOT NULL columns without a DEFAULT and would fail on the non-empty
+     * dev table.
+     */
+    @Builder.Default
+    @ColumnDefault("true")
+    @Column(nullable = false)
+    private boolean videoEnabled = true;
+
+    /**
      * Mic-energy flag reported by the client's local speech detection; clamped
      * to false while muted (service-enforced). ColumnDefault is required —
      * ddl-auto=update adds NOT NULL columns without a DEFAULT and would fail

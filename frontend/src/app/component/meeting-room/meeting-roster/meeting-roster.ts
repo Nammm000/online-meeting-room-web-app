@@ -38,6 +38,22 @@ export class MeetingRoster {
     );
   }
 
+  /** Moderator camera-off (restrict-only server-side), offered while the camera entitlement is on. */
+  protected canStopVideo(participant: Participant): boolean {
+    return this.roomService.canModerate() && participant.role !== 'HOST' && participant.videoEnabled;
+  }
+
+  /** Moderator stop-share — only on the current sharer's row (and never the host's own). */
+  protected canStopShare(participant: Participant): boolean {
+    const sharer = this.roomService.screenSharerUserId();
+    return (
+      this.roomService.canModerate() &&
+      sharer === participant.userId &&
+      participant.userId !== this.roomService.myUserId() &&
+      participant.role !== 'HOST'
+    );
+  }
+
   /** Host promotes/demotes co-hosts; the host row itself is immutable. */
   protected canChangeRole(participant: Participant): boolean {
     return this.roomService.isHost() && participant.role !== 'HOST';

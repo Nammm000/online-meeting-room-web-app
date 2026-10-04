@@ -109,6 +109,7 @@ class UserServiceTest {
         verify(chatMessageRepo).deleteAllBySenderId(5L);
         verify(chatMessageRepo).deleteAllByRecipientId(5L);
         verify(chatMessageRepo).updateDeletedByToNull(5L);
+        verify(meetingRepo).updateScreenSharerToNull(5L);
         verify(refreshTokenService).deleteAllByUserId(5L);
     }
 

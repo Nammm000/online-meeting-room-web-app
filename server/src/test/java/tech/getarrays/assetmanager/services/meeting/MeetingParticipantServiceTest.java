@@ -213,6 +213,143 @@ class MeetingParticipantServiceTest {
         verify(stateService, never()).setHandRaised(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 
+    // ── camera entitlement ────────────────────────────────────────────────────
+
+    @Test
+    void selfVideoUpdatesTheLiveSessionThenPersists() {
+        setCurrentUser(guest);
+        when(authority.requireJoined(meeting, guest))
+                .thenReturn(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED));
+
+        service.selfVideo("ABCD234567", false);
+
+        InOrder order = inOrder(liveKitMediaService, stateService);
+        order.verify(liveKitMediaService).applyPublishEntitlements("ABCD234567", 9L, false, false);
+        order.verify(stateService).setVideoEnabled(1L, 9L, false);
+    }
+
+    @Test
+    void hostVideoOffHitsLiveKitBeforeTheDatabase() { // §5.4 ordering, like host-mute
+        when(authority.requireHostOrCohost(meeting, host))
+                .thenReturn(row(host, ParticipantRole.HOST, ParticipantStatus.JOINED));
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L))
+                .thenReturn(Optional.of(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED)));
+
+        service.videoParticipant("ABCD234567", 9L, false);
+
+        InOrder order = inOrder(liveKitMediaService, stateService);
+        order.verify(liveKitMediaService).applyPublishEntitlements("ABCD234567", 9L, false, false);
+        order.verify(stateService).setVideoEnabled(1L, 9L, false);
+    }
+
+    @Test
+    void hostsCanOnlyTurnCamerasOff() { // re-enable is the self endpoint alone
+        when(authority.requireHostOrCohost(meeting, host))
+                .thenReturn(row(host, ParticipantRole.HOST, ParticipantStatus.JOINED));
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L))
+                .thenReturn(Optional.of(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED)));
+
+        assertThatThrownBy(() -> service.videoParticipant("ABCD234567", 9L, true))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Only the participant can turn their own camera on");
+        verify(stateService, never()).setVideoEnabled(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(liveKitMediaService, never()).applyPublishEntitlements(any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    @Test
+    void nobodyTurnsOffTheHostsCamera() {
+        setCurrentUser(cohost); // a co-host other than the host attempts the camera-off
+        when(authority.requireHostOrCohost(meeting, cohost))
+                .thenReturn(row(cohost, ParticipantRole.COHOST, ParticipantStatus.JOINED));
+        when(participantRepo.findByMeetingIdAndUserId(1L, 2L))
+                .thenReturn(Optional.of(row(host, ParticipantRole.HOST, ParticipantStatus.JOINED)));
+
+        assertThatThrownBy(() -> service.videoParticipant("ABCD234567", 2L, false))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("The host cannot have their camera turned off by someone else");
+        verify(stateService, never()).setVideoEnabled(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
+    // ── exclusive screen share ────────────────────────────────────────────────
+
+    @Test
+    void secondSharerGetsTheExactConflictMessage() {
+        setCurrentUser(guest);
+        when(authority.requireJoined(meeting, guest))
+                .thenReturn(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED));
+        when(stateService.claimScreenShare(1L, 9L)).thenReturn(false);
+
+        assertThatThrownBy(() -> service.selfScreenShare("ABCD234567", true))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("You cannot share your screen while someone else is sharing.");
+        verify(liveKitMediaService, never()).applyPublishEntitlements(any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(stateService, never()).releaseScreenShare(any(), any());
+    }
+
+    @Test
+    void claimIsDecidedBeforeTheLiveSessionGainsTheEntitlement() {
+        setCurrentUser(guest);
+        when(authority.requireJoined(meeting, guest))
+                .thenReturn(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED));
+        when(stateService.claimScreenShare(1L, 9L)).thenReturn(true);
+
+        service.selfScreenShare("ABCD234567", true);
+
+        InOrder order = inOrder(stateService, liveKitMediaService);
+        order.verify(stateService).claimScreenShare(1L, 9L);
+        order.verify(liveKitMediaService).applyPublishEntitlements("ABCD234567", 9L, true, true);
+    }
+
+    @Test
+    void selfStopDropsTheEntitlementThenReleases() {
+        setCurrentUser(guest);
+        when(authority.requireJoined(meeting, guest))
+                .thenReturn(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED));
+
+        service.selfScreenShare("ABCD234567", false);
+
+        InOrder order = inOrder(liveKitMediaService, stateService);
+        order.verify(liveKitMediaService).applyPublishEntitlements("ABCD234567", 9L, true, false);
+        order.verify(stateService).releaseScreenShare(1L, 9L);
+    }
+
+    @Test
+    void onlyTheParticipantCanStartTheirOwnShare() {
+        when(authority.requireHostOrCohost(meeting, host))
+                .thenReturn(row(host, ParticipantRole.HOST, ParticipantStatus.JOINED));
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L))
+                .thenReturn(Optional.of(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED)));
+
+        assertThatThrownBy(() -> service.stopScreenShare("ABCD234567", 9L, true))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("Screen sharing can only be started by the participant");
+    }
+
+    @Test
+    void hostStopShareRequiresTheTargetToBeTheSharerThenHitsLiveKitFirst() {
+        when(authority.requireHostOrCohost(meeting, host))
+                .thenReturn(row(host, ParticipantRole.HOST, ParticipantStatus.JOINED));
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L))
+                .thenReturn(Optional.of(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED)));
+
+        // Not the current sharer → 409, nothing touched.
+        assertThatThrownBy(() -> service.stopScreenShare("ABCD234567", 9L, false))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("That participant is not sharing their screen");
+        verify(liveKitMediaService, never()).applyPublishEntitlements(any(), any(),
+                org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean());
+        verify(stateService, never()).releaseScreenShare(any(), any());
+
+        meeting.setScreenSharer(guest);
+        service.stopScreenShare("ABCD234567", 9L, false);
+
+        InOrder order = inOrder(liveKitMediaService, stateService);
+        order.verify(liveKitMediaService).applyPublishEntitlements("ABCD234567", 9L, true, false);
+        order.verify(stateService).releaseScreenShare(1L, 9L);
+    }
+
     @Test
     void statusDtosCarryTheSpeakingAndPasswordFields() {
         meeting.setPasswordHash("hash");
@@ -231,6 +368,19 @@ class MeetingParticipantServiceTest {
         assertThat(status.participant().lastSpeakingAt()).isEqualTo(stamp);
         assertThat(status.participant().handRaised()).isTrue();
         assertThat(status.participant().lastHandRaisedAt()).isEqualTo(stamp);
+        assertThat(status.participant().email()).isEqualTo("host@t.dev");
+        assertThat(status.participant().videoEnabled()).isTrue();
+    }
+
+    @Test
+    void statusDtosCarryTheScreenSharerIdentity() {
+        meeting.setScreenSharer(guest);
+        MeetingParticipant hostRow = row(host, ParticipantRole.HOST, ParticipantStatus.JOINED);
+        when(authority.callerParticipant(meeting, host)).thenReturn(Optional.of(hostRow));
+
+        MyMeetingStatusDTO status = service.myStatus("ABCD234567");
+
+        assertThat(status.meeting().screenSharerUserId()).isEqualTo(9L);
     }
 
     @Test

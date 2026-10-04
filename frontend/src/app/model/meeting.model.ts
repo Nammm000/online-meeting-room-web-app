@@ -66,6 +66,8 @@ export interface Meeting {
   locked: boolean;
   /** True when the meeting was created with a password; the hash never leaves the backend. */
   hasPassword: boolean;
+  /** The exclusive screen sharer's userId (null = nobody). Populated by the /me status channel only. */
+  screenSharerUserId: number | null;
   hostId: number;
   hostName: string;
   media: MediaCredentials | null;
@@ -75,9 +77,13 @@ export interface Meeting {
 export interface Participant {
   userId: number;
   name: string;
+  /** Feeds the stage-tile hover info card. */
+  email: string;
   role: ParticipantRole;
   status: ParticipantStatus;
   muted: boolean;
+  /** Camera entitlement; a host force-off persists across rejoin, re-enable is self-only. */
+  videoEnabled: boolean;
   /** Local-mic-analysis flag reported over REST; always false while muted. */
   speaking: boolean;
   /** Toolbar-toggled flag; a moderator may lower it. Rides the roster poll. */
@@ -148,6 +154,16 @@ export interface SpeakingRequestBody {
 /** HandRequest body; unlike speaking there is no mute clamp. */
 export interface HandRequestBody {
   handRaised: boolean;
+}
+
+/** VideoRequest body; the moderator endpoint only ever sends false. */
+export interface VideoRequestBody {
+  videoEnabled: boolean;
+}
+
+/** ScreenShareRequest body; the moderator endpoint only ever sends false. */
+export interface ScreenShareRequestBody {
+  sharing: boolean;
 }
 
 /** LockRequest body. */

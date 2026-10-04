@@ -34,6 +34,29 @@ public interface MeetingRepo extends JpaRepository<Meeting, Long> {
     @Query("update Meeting m set m.status = :status where m.id = :id")
     Integer updateStatus(@Param("status") MeetingStatus status, @Param("id") Long id);
 
+    /**
+     * Exclusive screen-share slot: atomic claim — the rowcount says whether
+     * this user actually owns the slot (0 = someone else holds it). The
+     * self-or-free guard makes re-claiming idempotent for the current sharer.
+     */
+    @Transactional
+    @Modifying
+    @Query("update Meeting m set m.screenSharer.id = :userId where m.id = :meetingId "
+            + "and (m.screenSharer is null or m.screenSharer.id = :userId)")
+    Integer claimScreenSharerIfFree(@Param("meetingId") Long meetingId, @Param("userId") Long userId);
+
+    /** Releases the slot iff this user holds it (leave/remove/self-stop); idempotent. */
+    @Transactional
+    @Modifying
+    @Query("update Meeting m set m.screenSharer = null where m.id = :meetingId and m.screenSharer.id = :userId")
+    Integer releaseScreenSharerIf(@Param("meetingId") Long meetingId, @Param("userId") Long userId);
+
+    /** User-account cleanup: nullable FK — null it, don't tombstone it (updateAdmittedByToNull precedent). */
+    @Transactional
+    @Modifying
+    @Query("update Meeting m set m.screenSharer = null where m.screenSharer.id = :userId")
+    Integer updateScreenSharerToNull(@Param("userId") Long userId);
+
     /** User-account cleanup: hard-delete of every meeting the user hosts (chat/participants go first — see design doc). */
     @Transactional
     @Modifying

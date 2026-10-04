@@ -140,6 +140,39 @@ public class MeetingParticipantService {
         stateService.setHandRaised(meeting.getId(), caller.getId(), handRaised);
     }
 
+    /** Self camera toggle from the toolbar; entitlements update the live LiveKit session. */
+    public void selfVideo(String joinCode, boolean videoEnabled) {
+        Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
+        User caller = UserUtils.getCurrentUser();
+        MeetingParticipant participant = authority.requireJoined(meeting, caller);
+        liveKitMediaService.applyPublishEntitlements(meeting.getJoinCode(), caller.getId(),
+                videoEnabled, isScreenSharer(meeting, caller.getId()));
+        stateService.setVideoEnabled(meeting.getId(), caller.getId(), videoEnabled);
+    }
+
+    /**
+     * Claims or releases the exclusive screen-share slot. The claim is decided
+     * atomically in the DB first (nothing to enforce at LiveKit before the
+     * slot is owned); on success the live session gains the screen_share
+     * publish entitlement so the client may publish immediately.
+     */
+    public void selfScreenShare(String joinCode, boolean sharing) {
+        Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
+        User caller = UserUtils.getCurrentUser();
+        MeetingParticipant participant = authority.requireJoined(meeting, caller);
+        if (sharing) {
+            if (!stateService.claimScreenShare(meeting.getId(), caller.getId())) {
+                throw new ConflictException("You cannot share your screen while someone else is sharing.");
+            }
+            liveKitMediaService.applyPublishEntitlements(meeting.getJoinCode(), caller.getId(),
+                    participant.isVideoEnabled(), true);
+        } else {
+            liveKitMediaService.applyPublishEntitlements(meeting.getJoinCode(), caller.getId(),
+                    participant.isVideoEnabled(), false);
+            stateService.releaseScreenShare(meeting.getId(), caller.getId());
+        }
+    }
+
     /**
      * Host/co-host mute of another participant. Deliberate ordering (doc §5.4):
      * the AudioBridge admin mute runs BEFORE the DB write, so the flag never
@@ -168,6 +201,51 @@ public class MeetingParticipantService {
             throw new ConflictException("The host's hand cannot be lowered by someone else");
         }
         stateService.setHandRaised(meeting.getId(), userId, handRaised);
+    }
+
+    /**
+     * Host/co-host camera-off — restrict-only by design: turning someone's
+     * camera ON remotely would be a privacy violation, so the re-enable path
+     * is the self endpoint alone.
+     */
+    public void videoParticipant(String joinCode, Long userId, boolean videoEnabled) {
+        Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
+        User caller = UserUtils.getCurrentUser();
+        authority.requireHostOrCohost(meeting, caller);
+        MeetingParticipant target = requireTarget(meeting, userId);
+        if (videoEnabled) {
+            throw new ConflictException("Only the participant can turn their own camera on");
+        }
+        if (target.getRole() == ParticipantRole.HOST && !Objects.equals(target.getUser().getId(), caller.getId())) {
+            throw new ConflictException("The host cannot have their camera turned off by someone else");
+        }
+        liveKitMediaService.applyPublishEntitlements(meeting.getJoinCode(), userId,
+                false, isScreenSharer(meeting, userId));
+        stateService.setVideoEnabled(meeting.getId(), userId, false);
+    }
+
+    /**
+     * Host/co-host stops another participant's share — restrict-only, target
+     * must be the current sharer. Entitlements drop the live session's
+     * screen_share publish right before the slot releases (§5.4 ordering).
+     */
+    public void stopScreenShare(String joinCode, Long userId, boolean sharing) {
+        Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
+        User caller = UserUtils.getCurrentUser();
+        authority.requireHostOrCohost(meeting, caller);
+        MeetingParticipant target = requireTarget(meeting, userId);
+        if (sharing) {
+            throw new ConflictException("Screen sharing can only be started by the participant");
+        }
+        if (target.getRole() == ParticipantRole.HOST && !Objects.equals(target.getUser().getId(), caller.getId())) {
+            throw new ConflictException("The host's screen share cannot be stopped by someone else");
+        }
+        if (!isScreenSharer(meeting, userId)) {
+            throw new ConflictException("That participant is not sharing their screen");
+        }
+        liveKitMediaService.applyPublishEntitlements(meeting.getJoinCode(), userId,
+                target.isVideoEnabled(), false);
+        stateService.releaseScreenShare(meeting.getId(), userId);
     }
 
     /** Host remove: DB first, then disconnect + token revocation + bridge kick, all best-effort. */
@@ -229,8 +307,9 @@ public class MeetingParticipantService {
         }
         MeetingDTO summary = MeetingDTO.summaryOf(meeting.getId(), meeting.getJoinCode(), meeting.getTitle(),
                 meeting.getType(), meeting.getStatus(), meeting.isLocked(), meeting.getPasswordHash() != null,
-                meeting.isWaitingRoomEnabled(), meeting.isMuteOnEntry(), meeting.getHost().getId(),
-                meeting.getHost().getName(), meeting.getCreatedAt());
+                meeting.isWaitingRoomEnabled(), meeting.isMuteOnEntry(),
+                meeting.getScreenSharer() == null ? null : meeting.getScreenSharer().getId(),
+                meeting.getHost().getId(), meeting.getHost().getName(), meeting.getCreatedAt());
         return new MyMeetingStatusDTO(summary, participant == null ? null : toDto(participant), media);
     }
 
@@ -239,11 +318,16 @@ public class MeetingParticipantService {
                 .orElseThrow(() -> new ConflictException("Participant not found in this meeting"));
     }
 
+    private boolean isScreenSharer(Meeting meeting, Long userId) {
+        return meeting.getScreenSharer() != null && meeting.getScreenSharer().getId().equals(userId);
+    }
+
     private ParticipantDTO toDto(MeetingParticipant participant) {
         User admittedBy = participant.getAdmittedBy();
         return new ParticipantDTO(participant.getUser().getId(), participant.getUser().getName(),
-                participant.getRole(), participant.getStatus(), participant.isMuted(), participant.isSpeaking(),
-                participant.isHandRaised(),
+                participant.getUser().getEmail(),
+                participant.getRole(), participant.getStatus(), participant.isMuted(),
+                participant.isVideoEnabled(), participant.isSpeaking(), participant.isHandRaised(),
                 participant.getJoinCount(), participant.getFirstJoinedAt(), participant.getLastJoinedAt(),
                 participant.getLastLeftAt(), participant.getLastSpeakingAt(), participant.getLastHandRaisedAt(),
                 admittedBy == null ? null : admittedBy.getName());

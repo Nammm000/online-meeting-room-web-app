@@ -164,6 +164,9 @@ public class UserService {
                     ParticipantRole.PARTICIPANT, ParticipantStatus.LEFT, LocalDateTime.now());
         }
         participantRepo.updateAdmittedByToNull(user.getId());
+        // Screen-sharer FK on meetings they don't host — nullable display-state
+        // reference, null it (their hosted meetings are already gone above).
+        meetingRepo.updateScreenSharerToNull(user.getId());
 
         // 4. Auth + owned files (MinIO keys come back for the post-flush cleanup).
         refreshTokenService.deleteAllByUserId(user.getId());

@@ -17,7 +17,9 @@ import tech.getarrays.meetingroom.dto.meeting.MuteRequest;
 import tech.getarrays.meetingroom.dto.meeting.MyMeetingStatusDTO;
 import tech.getarrays.meetingroom.dto.meeting.ParticipantDTO;
 import tech.getarrays.meetingroom.dto.meeting.RoleRequest;
+import tech.getarrays.meetingroom.dto.meeting.ScreenShareRequest;
 import tech.getarrays.meetingroom.dto.meeting.SpeakingRequest;
+import tech.getarrays.meetingroom.dto.meeting.VideoRequest;
 import tech.getarrays.meetingroom.models.meeting.MeetingParticipant.ParticipantRole;
 import tech.getarrays.meetingroom.services.meeting.MeetingParticipantService;
 import tech.getarrays.meetingroom.util.MeetingRoomUtils;
@@ -95,6 +97,19 @@ public class MeetingParticipantController {
         return MeetingRoomUtils.getResponseEntity("Hand state updated", HttpStatus.OK);
     }
 
+    @PatchMapping("/participants/me/video")
+    public ResponseEntity<String> selfVideo(@PathVariable String joinCode, @RequestBody VideoRequest request) {
+        participantService.selfVideo(joinCode, Boolean.TRUE.equals(request.videoEnabled()));
+        return MeetingRoomUtils.getResponseEntity("Video state updated", HttpStatus.OK);
+    }
+
+    @PatchMapping("/participants/me/screen-share")
+    public ResponseEntity<String> selfScreenShare(@PathVariable String joinCode,
+                                                  @RequestBody ScreenShareRequest request) {
+        participantService.selfScreenShare(joinCode, Boolean.TRUE.equals(request.sharing()));
+        return MeetingRoomUtils.getResponseEntity("Screen share state updated", HttpStatus.OK);
+    }
+
     @PatchMapping("/participants/{userId}/mute")
     public ResponseEntity<String> muteParticipant(@PathVariable String joinCode,
                                                   @PathVariable Long userId,
@@ -109,6 +124,22 @@ public class MeetingParticipantController {
                                                   @RequestBody HandRequest request) {
         participantService.handParticipant(joinCode, userId, Boolean.TRUE.equals(request.handRaised()));
         return MeetingRoomUtils.getResponseEntity("Participant hand state updated", HttpStatus.OK);
+    }
+
+    @PatchMapping("/participants/{userId}/video")
+    public ResponseEntity<String> videoParticipant(@PathVariable String joinCode,
+                                                   @PathVariable Long userId,
+                                                   @RequestBody VideoRequest request) {
+        participantService.videoParticipant(joinCode, userId, Boolean.TRUE.equals(request.videoEnabled()));
+        return MeetingRoomUtils.getResponseEntity("Participant video state updated", HttpStatus.OK);
+    }
+
+    @PatchMapping("/participants/{userId}/screen-share")
+    public ResponseEntity<String> stopScreenShare(@PathVariable String joinCode,
+                                                  @PathVariable Long userId,
+                                                  @RequestBody ScreenShareRequest request) {
+        participantService.stopScreenShare(joinCode, userId, Boolean.TRUE.equals(request.sharing()));
+        return MeetingRoomUtils.getResponseEntity("Participant screen share stopped", HttpStatus.OK);
     }
 
     @DeleteMapping("/participants/{userId}")

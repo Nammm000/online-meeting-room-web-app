@@ -18,6 +18,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class LiveKitMediaServiceTest {
@@ -37,8 +38,8 @@ class LiveKitMediaServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
-    void mintedTokenCarriesTheVideoOnlyGrantSet() {
-        String jwt = service.mintToken(7L, "Host User", "ABCD234567");
+    void mintedTokenCarriesThePerEntitlementGrantSet() {
+        String jwt = service.mintToken(7L, "Host User", "ABCD234567", true, true);
 
         Jws<Claims> parsed = Jwts.parserBuilder()
                 .setSigningKey(API_SECRET.getBytes())
@@ -65,6 +66,77 @@ class LiveKitMediaServiceTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    void cameraOnlyTokensExcludeScreenShare() {
+        String jwt = service.mintToken(7L, "Guest", "ABCD234567", true, false);
+
+        Map<String, Object> video = Jwts.parserBuilder()
+                .setSigningKey(API_SECRET.getBytes()).build().parseClaimsJws(jwt)
+                .getBody().get("video", Map.class);
+        assertThat((List<String>) video.get("canPublishSources")).containsExactly("camera");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fullyRestrictedTokensGetCanPublishFalseInsteadOfAnEmptySourceList() {
+        // An empty canPublishSources grant would mean ALL sources in LiveKit.
+        String jwt = service.mintToken(7L, "Guest", "ABCD234567", false, false);
+
+        Map<String, Object> video = Jwts.parserBuilder()
+                .setSigningKey(API_SECRET.getBytes()).build().parseClaimsJws(jwt)
+                .getBody().get("video", Map.class);
+        assertThat(video.get("canPublish")).isEqualTo(false);
+        assertThat(video).doesNotContainKey("canPublishSources");
+        assertThat(video.get("canSubscribe")).isEqualTo(true);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void entitlementsUpdateSendsThePermission() throws IOException {
+        Call<?> call = mock(Call.class);
+        when(call.execute()).thenReturn(null);
+        when(roomServiceClient.updateParticipant(org.mockito.ArgumentMatchers.eq("ABCD234567"),
+                org.mockito.ArgumentMatchers.eq("7"),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(livekit.LivekitModels.ParticipantPermission.class)))
+                .thenReturn((Call) call);
+
+        assertThat(service.applyPublishEntitlements("ABCD234567", 7L, true, false)).isTrue();
+
+        var captor = org.mockito.ArgumentCaptor.forClass(livekit.LivekitModels.ParticipantPermission.class);
+        verify(roomServiceClient).updateParticipant(org.mockito.ArgumentMatchers.eq("ABCD234567"),
+                org.mockito.ArgumentMatchers.eq("7"),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(), captor.capture());
+        livekit.LivekitModels.ParticipantPermission permission = captor.getValue();
+        assertThat(permission.getCanSubscribe()).isTrue();
+        assertThat(permission.getCanPublish()).isTrue();
+        assertThat(permission.getCanPublishData()).isFalse();
+        assertThat(permission.getCanPublishSourcesList())
+                .containsExactly(livekit.LivekitModels.TrackSource.CAMERA);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void fullyRestrictedEntitlementsSetCanPublishFalse() throws IOException {
+        Call<?> call = mock(Call.class);
+        when(call.execute()).thenReturn(null);
+        when(roomServiceClient.updateParticipant(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(livekit.LivekitModels.ParticipantPermission.class)))
+                .thenReturn((Call) call);
+
+        assertThat(service.applyPublishEntitlements("ABCD234567", 7L, false, false)).isTrue();
+
+        var captor = org.mockito.ArgumentCaptor.forClass(livekit.LivekitModels.ParticipantPermission.class);
+        verify(roomServiceClient).updateParticipant(org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.anyString(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(), captor.capture());
+        assertThat(captor.getValue().getCanPublish()).isFalse();
+        assertThat(captor.getValue().getCanPublishSourcesList()).isEmpty();
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
     void ensureRoomUsesTheConfiguredEmptyTimeout() throws IOException {
         Call<?> call = mock(Call.class);
         when(call.execute()).thenReturn(null);
@@ -83,11 +155,16 @@ class LiveKitMediaServiceTest {
         when(roomServiceClient.deleteRoom(anyString())).thenReturn((Call) failing);
         when(roomServiceClient.removeParticipant(anyString(), anyString(), org.mockito.ArgumentMatchers.any()))
                 .thenReturn((Call) failing);
+        when(roomServiceClient.updateParticipant(anyString(), anyString(),
+                org.mockito.ArgumentMatchers.isNull(), org.mockito.ArgumentMatchers.isNull(),
+                org.mockito.ArgumentMatchers.any(livekit.LivekitModels.ParticipantPermission.class)))
+                .thenReturn((Call) failing);
 
         assertThatCode(() -> {
             assertThat(service.ensureRoom("X")).isFalse();
             assertThat(service.deleteRoom("X")).isFalse();
             assertThat(service.removeParticipant("X", 7L)).isFalse();
+            assertThat(service.applyPublishEntitlements("X", 7L, true, true)).isFalse();
         }).doesNotThrowAnyException();
     }
 }

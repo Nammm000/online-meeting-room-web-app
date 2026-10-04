@@ -10,7 +10,9 @@ import type {
   MuteRequestBody,
   MyMeetingStatus,
   Participant,
+  ScreenShareRequestBody,
   SpeakingRequestBody,
+  VideoRequestBody,
 } from 'model/meeting.model';
 
 /**
@@ -110,6 +112,34 @@ export class MeetingParticipantService {
     );
   }
 
+  /** Self camera toggle; requires JOINED. Persists across rejoin like mute. */
+  setSelfVideo(
+    joinCode: string,
+    videoEnabled: boolean,
+  ): Observable<MessageResponse> {
+    const body: VideoRequestBody = { videoEnabled };
+    return this.http.patch<MessageResponse>(
+      `${this.base(joinCode)}/participants/me/video`,
+      body,
+    );
+  }
+
+  /**
+   * Self screen-share claim/release; requires JOINED. A taken slot answers
+   * 409 with the exact message "You cannot share your screen while someone
+   * else is sharing." — displayed verbatim, never translated.
+   */
+  setSelfScreenShare(
+    joinCode: string,
+    sharing: boolean,
+  ): Observable<MessageResponse> {
+    const body: ScreenShareRequestBody = { sharing };
+    return this.http.patch<MessageResponse>(
+      `${this.base(joinCode)}/participants/me/screen-share`,
+      body,
+    );
+  }
+
   /** Moderator mute; the host cannot be muted (409 server-side). */
   muteParticipant(
     joinCode: string,
@@ -132,6 +162,31 @@ export class MeetingParticipantService {
     const body: HandRequestBody = { handRaised };
     return this.http.patch<MessageResponse>(
       `${this.base(joinCode)}/participants/${userId}/hand`,
+      body,
+    );
+  }
+
+  /** Moderator camera-off — restrict-only (true is 409 server-side). */
+  setParticipantVideo(
+    joinCode: string,
+    userId: number,
+    videoEnabled: boolean,
+  ): Observable<MessageResponse> {
+    const body: VideoRequestBody = { videoEnabled };
+    return this.http.patch<MessageResponse>(
+      `${this.base(joinCode)}/participants/${userId}/video`,
+      body,
+    );
+  }
+
+  /** Moderator stop-share — restrict-only; non-sharer targets are 409 server-side. */
+  stopParticipantScreenShare(
+    joinCode: string,
+    userId: number,
+  ): Observable<MessageResponse> {
+    const body: ScreenShareRequestBody = { sharing: false };
+    return this.http.patch<MessageResponse>(
+      `${this.base(joinCode)}/participants/${userId}/screen-share`,
       body,
     );
   }

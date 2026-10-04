@@ -17,6 +17,9 @@ import { getApiErrorMessage } from 'util/api-util';
 import { GlobalMessages } from 'component/shared/global-constants';
 import { ModalService } from 'service/modal.service';
 import { SpeechDetectionService } from 'service/speech-detection.service';
+import { MeetingMediaService } from 'service/meeting-media.service';
+import { StageAvatarService } from 'service/stage-avatar.service';
+import type { VideoTrack } from 'service/meeting-media.service';
 import type {
   ChatMessage,
   Meeting,
@@ -83,6 +86,10 @@ export class MeetingRoomService {
   private readonly modalService = inject(ModalService);
   private readonly speech = inject(SpeechDetectionService);
 
+  /** The LiveKit facade — public read-only so the template binds its signals directly. */
+  readonly mediaFacade = inject(MeetingMediaService);
+  private readonly stageAvatars = inject(StageAvatarService);
+
   // ── state ──────────────────────────────────────────────────────────────
   private readonly _status = signal<MyMeetingStatus | null>(null);
   readonly status = this._status.asReadonly();
@@ -127,6 +134,8 @@ export class MeetingRoomService {
   private rosterTimer: ReturnType<typeof setTimeout> | null = null;
   private secondaryTimer: ReturnType<typeof setTimeout> | null = null;
   private speakingFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Guards the slot-reconciliation effect while a share start is resolving. */
+  private shareStartInFlight = false;
   private meBackoffAttempt = 0;
   /** Last speaking value PATCHed, and when — false matches the server's row default, so a fresh join sends nothing. */
   private lastSentSpeaking = false;
@@ -195,6 +204,28 @@ export class MeetingRoomService {
     return [self, ...speakers, ...rest];
   });
 
+  /** The exclusive share slot owner, from the /me channel (~2 s propagation). */
+  readonly screenSharerUserId = computed(() => this.meeting()?.screenSharerUserId ?? null);
+
+  readonly iAmSharing = computed(
+    () => this.screenSharerUserId() !== null && this.screenSharerUserId() === this.myUserId(),
+  );
+
+  /** What the prominent stage-share panel renders — own local track when sharing, else the subscribed remote. */
+  readonly screenShareView = computed<{ userId: number; name: string; track: VideoTrack } | null>(() => {
+    const sharerId = this.screenSharerUserId();
+    if (sharerId === null) {
+      return null;
+    }
+    const name = this._roster().find((participant) => participant.userId === sharerId)?.name ?? '';
+    if (this.iAmSharing()) {
+      const track = this.mediaFacade.localScreenTrack();
+      return track === null ? null : { userId: sharerId, name, track };
+    }
+    const remote = this.mediaFacade.screenShareTrack();
+    return remote === null ? null : { userId: sharerId, name, track: remote.track };
+  });
+
   constructor() {
     // Logout-while-in-room (header dropdown, expiry elsewhere): stop polling
     // instead of hammering dead endpoints (NotificationService pattern).
@@ -248,6 +279,59 @@ export class MeetingRoomService {
         }, MeetingRoomService.SPEAKING_SEND_MIN_MS - since);
       }
     });
+
+    // LiveKit lifecycle: connect while joined with credentials in hand (every
+    // /me poll re-offers the freshest token — a connected room just stores
+    // it), disconnect on stop/terminal states. The facade is inert on server.
+    effect(() => {
+      const media = this.media();
+      if (this._active() && this.viewState() === 'joined' && media !== null) {
+        this.mediaFacade.offerCredentials(media.liveKitUrl, media.liveKitToken);
+      } else {
+        this.mediaFacade.disconnect();
+      }
+    });
+
+    // Host forced the camera off (videoEnabled=false on the roster/me poll):
+    // stop the local capture — no PATCH, the DB is already the source of truth.
+    effect(() => {
+      if (this.me()?.videoEnabled === false && this.mediaFacade.cameraPublishing()) {
+        void this.mediaFacade.setCameraEnabled(false).catch(() => {});
+      }
+    });
+
+    // Lost the share slot (host stopped us): tear the local track down. The
+    // server entitlement drop also kills the live track, this is the local UI.
+    effect(() => {
+      const sharer = this.screenSharerUserId();
+      if (this.mediaFacade.screenSharing() && sharer !== null && sharer !== this.myUserId()) {
+        void this.mediaFacade.setScreenShareEnabled(false).catch(() => {});
+      }
+    });
+
+    // Slot reconciliation: the server says we hold the share, we are connected,
+    // the start is not in flight — but no live track remains (the browser's
+    // native stop bar, or a quick toggle-off) → PATCH the idempotent release.
+    effect(() => {
+      if (
+        this.viewState() === 'joined' &&
+        !this.shareStartInFlight &&
+        this.mediaFacade.connectionState() === 'connected' &&
+        this.screenSharerUserId() === this.myUserId() &&
+        this.screenSharerUserId() !== null &&
+        !this.mediaFacade.screenSharing()
+      ) {
+        this.releaseShareSlot();
+      }
+    });
+
+    // Stage avatars: enqueue roster ids not yet cached (sequential, rate-capped).
+    effect(() => {
+      const ids = this._roster().map((participant) => participant.userId);
+      if (ids.length > 0) {
+        this.stageAvatars.ensureLoaded(ids);
+      }
+    });
   }
 
   // ── lifecycle ──────────────────────────────────────────────────────────
@@ -285,6 +369,9 @@ export class MeetingRoomService {
     this.joinCode = null;
     this._active.set(false);
     this._actingUserId.set(null);
+    this.shareStartInFlight = false;
+    this.mediaFacade.disconnect();
+    this.stageAvatars.clearAll();
   }
 
   /** Manual refresh — immediate /me plus, when joined, both secondary chains. */
@@ -448,6 +535,108 @@ export class MeetingRoomService {
   }
 
   /**
+   * Toolbar camera toggle. Session state is the facade's `cameraPublishing`;
+   * the persisted `videoEnabled` is only the entitlement ceiling, so turning
+   * off is a pure local unpublish (no PATCH — re-enable stays allowed), while
+   * turning on PATCHes the entitlement first (covers re-enable after a host
+   * force-off) and only then asks for the capture.
+   */
+  toggleSelfVideo(): void {
+    const code = this.joinCode;
+    if (code === null || this._actingUserId() !== null) {
+      return;
+    }
+    this._actionError.set('');
+    if (this.mediaFacade.cameraPublishing()) {
+      // Off: stop the feed first (privacy/latency — same ordering as self-mute).
+      this._actingUserId.set(this.myUserId());
+      void this.mediaFacade
+        .setCameraEnabled(false)
+        .catch(() => {})
+        .finally(() => this._actingUserId.set(null));
+      return;
+    }
+    this._actingUserId.set(this.myUserId());
+    this.participantService
+      .setSelfVideo(code, true)
+      .pipe(take(1))
+      .subscribe({
+        next: () => {
+          void this.mediaFacade
+            .setCameraEnabled(true)
+            .catch(() => {
+              // Camera permission denied — entitlement stays true, capture aborted.
+              this._actionError.set(GlobalMessages.genericError);
+            })
+            .finally(() => this._actingUserId.set(null));
+        },
+        error: (error) => {
+          this._actingUserId.set(null);
+          this._actionError.set(getApiErrorMessage(error, GlobalMessages.genericError));
+        },
+      });
+  }
+
+  /**
+   * Toolbar screen-share toggle — claim-first: a taken slot 409s with the
+   * exact server string ("You cannot share your screen while someone else is
+   * sharing."), surfaced via actionError verbatim. On success the capture
+   * follows; a denied screen picker releases the freshly claimed slot. Stopping
+   * is local-only — the slot-reconciliation effect PATCHes the idempotent
+   * release once the track is gone (native-stop lands there too).
+   */
+  toggleSelfScreenShare(): void {
+    const code = this.joinCode;
+    if (code === null || this._actingUserId() !== null) {
+      return;
+    }
+    this._actionError.set('');
+    if (this.iAmSharing()) {
+      this._actingUserId.set(this.myUserId());
+      void this.mediaFacade
+        .setScreenShareEnabled(false)
+        .catch(() => {})
+        .finally(() => this._actingUserId.set(null));
+      return;
+    }
+    this._actingUserId.set(this.myUserId());
+    this.participantService
+      .setSelfScreenShare(code, true)
+      .pipe(take(1))
+      .subscribe({
+        next: () => {
+          this.shareStartInFlight = true;
+          void this.mediaFacade
+            .setScreenShareEnabled(true)
+            .catch(() => {
+              this._actionError.set(GlobalMessages.genericError);
+              this.releaseShareSlot();
+            })
+            .finally(() => {
+              this.shareStartInFlight = false;
+              this._actingUserId.set(null);
+            });
+        },
+        error: (error) => {
+          this._actingUserId.set(null);
+          this._actionError.set(getApiErrorMessage(error, GlobalMessages.genericError));
+        },
+      });
+  }
+
+  /** Click-to-view on a remote tile (self is always-on local preview). */
+  toggleTileVideo(participant: Participant): void {
+    if (participant.userId === this.myUserId()) {
+      return;
+    }
+    if (this.mediaFacade.remoteCameraTracks().has(participant.userId)) {
+      this.mediaFacade.unsubscribeFrom(participant.userId);
+    } else {
+      this.mediaFacade.subscribeTo(participant.userId);
+    }
+  }
+
+  /**
    * Optimistic speaking update: flips self locally (own tile lights instantly)
    * then PATCHes; failures are swallowed — the next roster poll re-syncs.
    */
@@ -490,6 +679,42 @@ export class MeetingRoomService {
       return;
     }
     this.runRowAction(userId, this.participantService.handParticipant(code, userId, false));
+  }
+
+  /** Moderator camera-off (restrict-only server-side); roster refresh rides runRowAction. */
+  stopParticipantVideo(userId: number): void {
+    const code = this.joinCode;
+    if (code === null) {
+      return;
+    }
+    this.runRowAction(userId, this.participantService.setParticipantVideo(code, userId, false));
+  }
+
+  /** Moderator stop-share; roster refresh rides runRowAction. */
+  stopParticipantShare(userId: number): void {
+    const code = this.joinCode;
+    if (code === null) {
+      return;
+    }
+    this.runRowAction(userId, this.participantService.stopParticipantScreenShare(code, userId));
+  }
+
+  /** Idempotent slot release — native stop, denied picker, reconciliation. */
+  private releaseShareSlot(): void {
+    const code = this.joinCode;
+    if (code === null) {
+      return;
+    }
+    this.participantService
+      .setSelfScreenShare(code, false)
+      .pipe(take(1))
+      .subscribe({
+        next: () => this._actingUserId.set(null),
+        error: (error) => {
+          this._actingUserId.set(null);
+          this._actionError.set(getApiErrorMessage(error, GlobalMessages.genericError));
+        },
+      });
   }
 
   removeParticipant(userId: number): void {
