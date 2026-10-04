@@ -82,6 +82,18 @@ describe('MeetingParticipantService', () => {
     request.flush({ messag: 'Speaking state updated' });
   });
 
+  it('PATCHes the self hand state and the moderator lower-hand', () => {
+    service.setSelfHand(CODE, true).subscribe();
+    const self = expectOne('PATCH', `${BASE_URL}/participants/me/hand`);
+    expect(self.request.body).toEqual({ handRaised: true });
+    self.flush({ messag: 'Hand state updated' });
+
+    service.handParticipant(CODE, 7, false).subscribe();
+    const other = expectOne('PATCH', `${BASE_URL}/participants/7/hand`);
+    expect(other.request.body).toEqual({ handRaised: false });
+    other.flush({ messag: 'Participant hand state updated' });
+  });
+
   it('removes a participant', () => {
     service.removeParticipant(CODE, 7).subscribe();
     expectOne('DELETE', `${BASE_URL}/participants/7`).flush({ messag: 'Participant removed' });

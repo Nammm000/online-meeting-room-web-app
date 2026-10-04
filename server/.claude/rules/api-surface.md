@@ -32,10 +32,12 @@ Controllers live in `controllers/` — eight: `AuthenticationController`, `UserC
 | GET | `/{joinCode}/lobby` | — | WAITING list — HOST/COHOST only | JWT |
 | POST | `/{joinCode}/lobby/{userId}/admit` | — | HOST/COHOST: WAITING→JOINED tx (`admittedBy`, `joinCount++`, `muted = muteOnEntry OR prior`, `speaking` reset); client picks up credentials on next `/me` poll | JWT |
 | POST | `/{joinCode}/lobby/{userId}/deny` | — | HOST/COHOST: WAITING→DENIED (re-request allowed → WAITING) | JWT |
-| GET | `/{joinCode}/roster` | — | JOINED list; caller must be JOINED or HOST/COHOST. `ParticipantDTO` carries `speaking`/`lastSpeakingAt` for the stage indicator | JWT |
+| GET | `/{joinCode}/roster` | — | JOINED list; caller must be JOINED or HOST/COHOST. `ParticipantDTO` carries `speaking`/`lastSpeakingAt` for the stage indicator and `handRaised`/`lastHandRaisedAt` for the raise-hand badge | JWT |
 | PATCH | `/{joinCode}/participants/me/mute` | body: `{muted}` | Self-mute persist (client mutes at the bridge first for latency; this survives rejoin); muting also clears `speaking` | JWT |
 | PATCH | `/{joinCode}/participants/me/speaking` | body: `{speaking}` | Self speaking state from the client's local mic analysis; requires JOINED, server clamps to false while muted. `lastSpeakingAt` stamps only the false→true edge (roster sort key for simultaneous speakers) | JWT |
+| PATCH | `/{joinCode}/participants/me/hand` | body: `{handRaised}` | Self raised-hand toggle from the toolbar; requires JOINED, **no mute clamp** (a raised hand while muted is legitimate — unlike `speaking`). `lastHandRaisedAt` stamps only the false→true edge (raise-order key); reset on rejoin/leave/remove/meeting-end | JWT |
 | PATCH | `/{joinCode}/participants/{userId}/mute` | body: `{muted}` | HOST/COHOST (host cannot be muted by someone else): **AudioBridge admin mute first**, then DB | JWT |
+| PATCH | `/{joinCode}/participants/{userId}/hand` | body: `{handRaised}` | HOST/COHOST (the host's hand cannot be lowered by someone else → 409): pure DB, no media counterpart | JWT |
 | DELETE | `/{joinCode}/participants/{userId}` | — | HOST/COHOST (not HOST target; COHOST cannot remove COHOST): REMOVED tx → LiveKit remove+revoke → AudioBridge kick | JWT |
 | PATCH | `/{joinCode}/lock` | body: `{locked}` | HOST only; pure DB flag — the token gate enforces | JWT |
 | PATCH | `/{joinCode}/participants/{userId}/role` | body: `{role: COHOST\|PARTICIPANT}` | HOST only; HOST role immutable both ways (409) | JWT |

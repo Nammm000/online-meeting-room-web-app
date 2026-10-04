@@ -305,4 +305,67 @@ class MeetingStateServiceTest {
         assertThat(joined.getStatus()).isEqualTo(ParticipantStatus.LEFT);
         assertThat(joined.isSpeaking()).isFalse();
     }
+
+    // ── raised-hand flag ─────────────────────────────────────────────────────
+
+    @Test
+    void setHandRaisedStampsLastHandRaisedAtOnTheRisingEdgeOnly() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant participant = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(participant));
+
+        stateService.setHandRaised(1L, 9L, true);
+        assertThat(participant.isHandRaised()).isTrue();
+        assertThat(participant.getLastHandRaisedAt()).isNotNull();
+        LocalDateTime stamp = participant.getLastHandRaisedAt();
+
+        stateService.setHandRaised(1L, 9L, false);
+        assertThat(participant.isHandRaised()).isFalse();
+        assertThat(participant.getLastHandRaisedAt()).as("kept while lowered — it only orders raised hands")
+                .isEqualTo(stamp);
+    }
+
+    @Test
+    void mutingKeepsTheRaisedHand() { // deliberate divergence from the speaking clamp
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant participant = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        participant.setHandRaised(true);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(participant));
+
+        stateService.setMuted(1L, 9L, true);
+
+        assertThat(participant.isMuted()).isTrue();
+        assertThat(participant.isHandRaised()).as("a raised hand while muted is legitimate").isTrue();
+    }
+
+    @Test
+    void rejoiningResetsTheHandRaisedFlag() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant left = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.LEFT);
+        left.setJoinCount(1);
+        left.setHandRaised(true);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(left));
+
+        MeetingParticipant rejoined = stateService.joinParticipant(m, User.builder().id(9L).build());
+
+        assertThat(rejoined.getStatus()).isEqualTo(ParticipantStatus.JOINED);
+        assertThat(rejoined.isHandRaised()).isFalse();
+    }
+
+    @Test
+    void markLeftClearsTheHandRaisedFlag() {
+        Meeting m = meeting(MeetingStatus.IN_PROGRESS, false, false);
+        MeetingParticipant joined = row(m, User.builder().id(9L).build(),
+                ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        joined.setHandRaised(true);
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L)).thenReturn(Optional.of(joined));
+
+        stateService.markLeftIfJoined(1L, 9L);
+
+        assertThat(joined.getStatus()).isEqualTo(ParticipantStatus.LEFT);
+        assertThat(joined.isHandRaised()).isFalse();
+    }
 }

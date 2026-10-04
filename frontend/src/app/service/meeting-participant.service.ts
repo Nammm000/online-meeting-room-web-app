@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { MessageResponse } from 'model/common.model';
 import type {
+  HandRequestBody,
   JoinRequestBody,
   MeetingRoleUpdate,
   MuteRequestBody,
@@ -97,6 +98,18 @@ export class MeetingParticipantService {
     );
   }
 
+  /** Self raised-hand toggle; requires JOINED. User-paced — no throttle needed. */
+  setSelfHand(
+    joinCode: string,
+    handRaised: boolean,
+  ): Observable<MessageResponse> {
+    const body: HandRequestBody = { handRaised };
+    return this.http.patch<MessageResponse>(
+      `${this.base(joinCode)}/participants/me/hand`,
+      body,
+    );
+  }
+
   /** Moderator mute; the host cannot be muted (409 server-side). */
   muteParticipant(
     joinCode: string,
@@ -106,6 +119,19 @@ export class MeetingParticipantService {
     const body: MuteRequestBody = { muted };
     return this.http.patch<MessageResponse>(
       `${this.base(joinCode)}/participants/${userId}/mute`,
+      body,
+    );
+  }
+
+  /** Moderator lower-hand; the host row is 409 server-side. */
+  handParticipant(
+    joinCode: string,
+    userId: number,
+    handRaised: boolean,
+  ): Observable<MessageResponse> {
+    const body: HandRequestBody = { handRaised };
+    return this.http.patch<MessageResponse>(
+      `${this.base(joinCode)}/participants/${userId}/hand`,
       body,
     );
   }

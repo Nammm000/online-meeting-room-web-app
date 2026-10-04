@@ -61,11 +61,13 @@ function participantFixture(
     status,
     muted: false,
     speaking: false,
+    handRaised: false,
     joinCount: 1,
     firstJoinedAt: null,
     lastJoinedAt: null,
     lastLeftAt: null,
     lastSpeakingAt: null,
+    lastHandRaisedAt: null,
     admittedByName: null,
     ...overrides,
   };
@@ -375,6 +377,49 @@ describe('MeetingRoomService', () => {
       .flush({ messag: 'Mute state updated' });
 
     expect(service.me()?.muted).toBe(true);
+  });
+
+  it('self hand toggle PATCHes and flips the local participant', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+
+    service.setSelfHandRaised(true);
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/hand`,
+    );
+    expect(req.request.body).toEqual({ handRaised: true });
+    req.flush({ messag: 'Hand state updated' });
+
+    expect(service.me()?.handRaised).toBe(true);
+    expect(service.actingUserId()).toBeNull();
+  });
+
+  it('lowerHand fires the moderator endpoint then refreshes the roster', () => {
+    service.start(CODE);
+    const hostStatus = statusFixture({
+      participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
+      media: MEDIA,
+    });
+    flushMe(hostStatus);
+    flushRoster();
+    flushChat();
+
+    service.lowerHand(2);
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/2/hand`,
+    );
+    expect(req.request.body).toEqual({ handRaised: false });
+    req.flush({ messag: 'Participant hand state updated' });
+
+    // Row-action success refreshes the roster (runRowAction), like admit.
+    vi.advanceTimersByTime(2500);
+    flushMe(hostStatus);
+    flushMe(hostStatus);
+    flushRoster([participantFixture('JOINED', { handRaised: false })]);
+    flushChat();
+    expect(service.actingUserId()).toBeNull();
   });
 
   it('surfaces a row-action failure via actionError', () => {

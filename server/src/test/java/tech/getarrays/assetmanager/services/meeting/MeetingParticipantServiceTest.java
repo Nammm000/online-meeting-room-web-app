@@ -161,6 +161,58 @@ class MeetingParticipantServiceTest {
         verify(stateService).setSpeaking(1L, 9L, false);
     }
 
+    // ── raised hand ──────────────────────────────────────────────────────────
+
+    @Test
+    void selfHandRoutesIntoTheStateTransition() {
+        setCurrentUser(guest);
+        when(authority.requireJoined(meeting, guest))
+                .thenReturn(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED));
+
+        service.selfHand("ABCD234567", true);
+
+        verify(stateService).setHandRaised(1L, 9L, true);
+    }
+
+    @Test
+    void selfHandHasNoMuteClamp() { // a raised hand while muted is legitimate
+        setCurrentUser(guest);
+        MeetingParticipant muted = row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED);
+        muted.setMuted(true);
+        when(authority.requireJoined(meeting, guest)).thenReturn(muted);
+
+        service.selfHand("ABCD234567", true);
+
+        verify(stateService).setHandRaised(1L, 9L, true);
+    }
+
+    @Test
+    void loweringAnotherParticipantsHandRunsTheModeratorGate() {
+        when(authority.requireHostOrCohost(meeting, host))
+                .thenReturn(row(host, ParticipantRole.HOST, ParticipantStatus.JOINED));
+        when(participantRepo.findByMeetingIdAndUserId(1L, 9L))
+                .thenReturn(Optional.of(row(guest, ParticipantRole.PARTICIPANT, ParticipantStatus.JOINED)));
+
+        service.handParticipant("ABCD234567", 9L, false);
+
+        verify(authority).requireHostOrCohost(meeting, host);
+        verify(stateService).setHandRaised(1L, 9L, false);
+    }
+
+    @Test
+    void theHostHandCannotBeLoweredBySomeoneElse() {
+        setCurrentUser(cohost); // a co-host other than the host attempts the lower
+        when(authority.requireHostOrCohost(meeting, cohost))
+                .thenReturn(row(cohost, ParticipantRole.COHOST, ParticipantStatus.JOINED));
+        when(participantRepo.findByMeetingIdAndUserId(1L, 2L))
+                .thenReturn(Optional.of(row(host, ParticipantRole.HOST, ParticipantStatus.JOINED)));
+
+        assertThatThrownBy(() -> service.handParticipant("ABCD234567", 2L, false))
+                .isInstanceOf(ConflictException.class)
+                .hasMessage("The host's hand cannot be lowered by someone else");
+        verify(stateService, never()).setHandRaised(any(), any(), org.mockito.ArgumentMatchers.anyBoolean());
+    }
+
     @Test
     void statusDtosCarryTheSpeakingAndPasswordFields() {
         meeting.setPasswordHash("hash");
@@ -168,6 +220,8 @@ class MeetingParticipantServiceTest {
         LocalDateTime stamp = LocalDateTime.now().minusSeconds(5);
         speaking.setSpeaking(true);
         speaking.setLastSpeakingAt(stamp);
+        speaking.setHandRaised(true);
+        speaking.setLastHandRaisedAt(stamp);
         when(authority.callerParticipant(meeting, host)).thenReturn(Optional.of(speaking));
 
         MyMeetingStatusDTO status = service.myStatus("ABCD234567");
@@ -175,6 +229,8 @@ class MeetingParticipantServiceTest {
         assertThat(status.meeting().hasPassword()).isTrue();
         assertThat(status.participant().speaking()).isTrue();
         assertThat(status.participant().lastSpeakingAt()).isEqualTo(stamp);
+        assertThat(status.participant().handRaised()).isTrue();
+        assertThat(status.participant().lastHandRaisedAt()).isEqualTo(stamp);
     }
 
     @Test

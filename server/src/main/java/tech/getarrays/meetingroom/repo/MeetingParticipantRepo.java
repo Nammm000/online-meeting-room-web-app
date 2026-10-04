@@ -34,7 +34,7 @@ public interface MeetingParticipantRepo extends JpaRepository<MeetingParticipant
     /** Meeting end: bulk-move every participant from one status to another in one statement (e.g. JOINED → LEFT). */
     @Transactional
     @Modifying
-    @Query("update MeetingParticipant p set p.status = :newStatus, p.lastLeftAt = :leftAt, p.speaking = false " +
+    @Query("update MeetingParticipant p set p.status = :newStatus, p.lastLeftAt = :leftAt, p.speaking = false, p.handRaised = false " +
            "where p.meeting.id = :meetingId and p.status = :oldStatus")
     Integer updateStatusForMeeting(@Param("meetingId") Long meetingId,
                                    @Param("oldStatus") ParticipantStatus oldStatus,
@@ -62,7 +62,7 @@ public interface MeetingParticipantRepo extends JpaRepository<MeetingParticipant
     @Transactional
     @Modifying
     @Query("update MeetingParticipant p set p.user.id = :placeholderId, p.role = :role, " +
-           "p.status = :status, p.lastLeftAt = :leftAt, p.speaking = false " +
+           "p.status = :status, p.lastLeftAt = :leftAt, p.speaking = false, p.handRaised = false " +
            "where p.user.id = :userId")
     Integer reassignToPlaceholder(@Param("placeholderId") Long placeholderId,
                                   @Param("userId") Long userId,

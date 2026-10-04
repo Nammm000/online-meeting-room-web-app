@@ -201,6 +201,15 @@
     }
   }
 
+  // Raised-hand badge: top-left twin of the mic badge (which owns top-right).
+  // Static — no animation, so no prefers-reduced-motion guard needed.
+  &__hand {
+    position: absolute;
+    top: 0.5rem;
+    left: 0.5rem;
+    color: var(--brand-text);
+  }
+
   &__placeholder {
     font-size: 0.75rem;
     color: var(--text-muted);
@@ -239,6 +248,13 @@
       background: var(--danger-soft);
       border-color: var(--danger-border);
       color: var(--danger-text);
+    }
+
+    // Attention-requesting state (raise hand) — brand tint, not the danger --off.
+    &--active {
+      background: var(--brand-soft);
+      border-color: var(--brand);
+      color: var(--brand-text);
     }
 
     &--disabled {

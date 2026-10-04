@@ -132,6 +132,14 @@ public class MeetingParticipantService {
         stateService.setSpeaking(meeting.getId(), caller.getId(), speaking && !participant.isMuted());
     }
 
+    /** Self raised-hand toggle from the toolbar — no mute clamp (a raised hand while muted is legitimate). */
+    public void selfHand(String joinCode, boolean handRaised) {
+        Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
+        User caller = UserUtils.getCurrentUser();
+        authority.requireJoined(meeting, caller);
+        stateService.setHandRaised(meeting.getId(), caller.getId(), handRaised);
+    }
+
     /**
      * Host/co-host mute of another participant. Deliberate ordering (doc §5.4):
      * the AudioBridge admin mute runs BEFORE the DB write, so the flag never
@@ -148,6 +156,18 @@ public class MeetingParticipantService {
         }
         janusAudioBridgeClient.adminMute(meeting.getId(), userId, muted);
         stateService.setMuted(meeting.getId(), userId, muted);
+    }
+
+    /** Host/co-host lowers another participant's hand — pure DB, no media counterpart. */
+    public void handParticipant(String joinCode, Long userId, boolean handRaised) {
+        Meeting meeting = authority.requireMeetingByJoinCode(joinCode);
+        User caller = UserUtils.getCurrentUser();
+        authority.requireHostOrCohost(meeting, caller);
+        MeetingParticipant target = requireTarget(meeting, userId);
+        if (target.getRole() == ParticipantRole.HOST && !Objects.equals(target.getUser().getId(), caller.getId())) {
+            throw new ConflictException("The host's hand cannot be lowered by someone else");
+        }
+        stateService.setHandRaised(meeting.getId(), userId, handRaised);
     }
 
     /** Host remove: DB first, then disconnect + token revocation + bridge kick, all best-effort. */
@@ -223,8 +243,9 @@ public class MeetingParticipantService {
         User admittedBy = participant.getAdmittedBy();
         return new ParticipantDTO(participant.getUser().getId(), participant.getUser().getName(),
                 participant.getRole(), participant.getStatus(), participant.isMuted(), participant.isSpeaking(),
+                participant.isHandRaised(),
                 participant.getJoinCount(), participant.getFirstJoinedAt(), participant.getLastJoinedAt(),
-                participant.getLastLeftAt(), participant.getLastSpeakingAt(),
+                participant.getLastLeftAt(), participant.getLastSpeakingAt(), participant.getLastHandRaisedAt(),
                 admittedBy == null ? null : admittedBy.getName());
     }
 }

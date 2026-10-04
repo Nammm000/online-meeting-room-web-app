@@ -411,6 +411,43 @@ export class MeetingRoomService {
   }
 
   /**
+   * Self raised-hand toggle. Success-flips locally for a snappy toolbar/tile
+   * (the next roster poll re-syncs everyone else) — no speaking-clamp logic,
+   * a raised hand while muted is legitimate.
+   */
+  setSelfHandRaised(handRaised: boolean): void {
+    const code = this.joinCode;
+    if (code === null || this._actingUserId() !== null) {
+      return;
+    }
+    this._actingUserId.set(this.myUserId());
+    this._actionError.set('');
+    this.participantService
+      .setSelfHand(code, handRaised)
+      .pipe(take(1))
+      .subscribe({
+        next: () => {
+          this._actingUserId.set(null);
+          this._status.update((status) =>
+            status && status.participant
+              ? { ...status, participant: { ...status.participant, handRaised } }
+              : status,
+          );
+          const myId = this.myUserId();
+          this._roster.update((roster) =>
+            roster.map((participant) =>
+              participant.userId === myId ? { ...participant, handRaised } : participant,
+            ),
+          );
+        },
+        error: (error) => {
+          this._actingUserId.set(null);
+          this._actionError.set(getApiErrorMessage(error, GlobalMessages.genericError));
+        },
+      });
+  }
+
+  /**
    * Optimistic speaking update: flips self locally (own tile lights instantly)
    * then PATCHes; failures are swallowed — the next roster poll re-syncs.
    */
@@ -444,6 +481,15 @@ export class MeetingRoomService {
       return;
     }
     this.runRowAction(userId, this.participantService.muteParticipant(code, userId, muted));
+  }
+
+  /** Moderator lower-hand; the roster refresh rides runRowAction. */
+  lowerHand(userId: number): void {
+    const code = this.joinCode;
+    if (code === null) {
+      return;
+    }
+    this.runRowAction(userId, this.participantService.handParticipant(code, userId, false));
   }
 
   removeParticipant(userId: number): void {

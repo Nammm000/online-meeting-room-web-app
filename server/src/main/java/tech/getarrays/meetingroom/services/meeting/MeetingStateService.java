@@ -186,6 +186,7 @@ public class MeetingStateService {
             participant.setStatus(ParticipantStatus.REMOVED);
             participant.setLastLeftAt(LocalDateTime.now());
             participant.setSpeaking(false);
+            participant.setHandRaised(false);
         }
         return participantRepo.save(participant);
     }
@@ -199,6 +200,7 @@ public class MeetingStateService {
                     participant.setStatus(ParticipantStatus.LEFT);
                     participant.setLastLeftAt(LocalDateTime.now());
                     participant.setSpeaking(false);
+                    participant.setHandRaised(false);
                     participantRepo.save(participant);
                 });
     }
@@ -221,6 +223,17 @@ public class MeetingStateService {
             participant.setLastSpeakingAt(LocalDateTime.now());
         }
         participant.setSpeaking(speaking);
+        participantRepo.save(participant);
+    }
+
+    /** Raised-hand state; lastHandRaisedAt stamps only the rising edge. */
+    @Transactional
+    public void setHandRaised(Long meetingId, Long userId, boolean handRaised) {
+        MeetingParticipant participant = requireParticipant(meetingId, userId);
+        if (handRaised && !participant.isHandRaised()) {
+            participant.setLastHandRaisedAt(LocalDateTime.now());
+        }
+        participant.setHandRaised(handRaised);
         participantRepo.save(participant);
     }
 
@@ -255,6 +268,7 @@ public class MeetingStateService {
         participant.setJoinCount(participant.getJoinCount() + 1);
         participant.setMuted(muted);
         participant.setSpeaking(false); // rejoin/admit hygiene — a stale flag must not survive a session gap
+        participant.setHandRaised(false);
         participant.setStatus(ParticipantStatus.JOINED);
     }
 

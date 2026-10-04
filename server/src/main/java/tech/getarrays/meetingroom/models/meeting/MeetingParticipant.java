@@ -79,6 +79,21 @@ public class MeetingParticipant {
     @Column(name = "last_speaking_at")
     private LocalDateTime lastSpeakingAt;
 
+    /**
+     * Raised-hand flag toggled by the participant (a moderator may lower it);
+     * no mute clamp — a raised hand while muted is legitimate. ColumnDefault is
+     * required — ddl-auto=update adds NOT NULL columns without a DEFAULT and
+     * would fail on the non-empty dev table.
+     */
+    @Builder.Default
+    @ColumnDefault("false")
+    @Column(nullable = false)
+    private boolean handRaised = false;
+
+    /** Set when the hand goes up; orders raised hands for the host. */
+    @Column(name = "last_hand_raised_at")
+    private LocalDateTime lastHandRaisedAt;
+
     @Builder.Default
     @Column(name = "join_count", nullable = false)
     private int joinCount = 0;

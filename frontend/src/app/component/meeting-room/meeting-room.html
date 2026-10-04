@@ -176,6 +176,11 @@
               ></i>
               }
             </span>
+            @if (participant.handRaised) {
+            <span class="stage-tile__hand">
+              <i class="icon-18 hand" [title]="langService.t('meetingRoom.handRaised')" aria-hidden="true"></i>
+            </span>
+            }
             <span class="stage-tile__placeholder">{{ langService.t('meetingRoom.videoComingSoon') }}</span>
           </div>
           } @empty {
@@ -193,6 +198,16 @@
           >
             <i class="icon-18 {{ roomService.me()?.muted ? 'mic-off' : 'mic' }}" aria-hidden="true"></i>
             {{ langService.t(roomService.me()?.muted ? 'meetingRoom.unmute' : 'meetingRoom.mute') }}
+          </button>
+          <button
+            type="button"
+            class="stage-controls__button"
+            [class.stage-controls__button--active]="roomService.me()?.handRaised"
+            [disabled]="roomService.actingUserId() === roomService.myUserId()"
+            (click)="toggleHandRaised()"
+          >
+            <i class="icon-18 hand" aria-hidden="true"></i>
+            {{ langService.t(roomService.me()?.handRaised ? 'meetingRoom.lowerHand' : 'meetingRoom.raiseHand') }}
           </button>
           <button
             type="button"

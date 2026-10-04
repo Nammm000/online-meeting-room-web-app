@@ -102,3 +102,9 @@
 .roster__mic--speaking {
   color: var(--success-strong);
 }
+
+// Raised-hand indicator (stage-tile__hand twin)
+.roster__hand {
+  flex-shrink: 0;
+  color: var(--brand-text);
+}

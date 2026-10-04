@@ -71,6 +71,13 @@
         [title]="langService.t(participant.muted ? 'meetingRoom.mute' : 'meetingRoom.unmute')"
         aria-hidden="true"
       ></i>
+      @if (participant.handRaised) {
+      <i
+        class="icon-18 hand roster__hand"
+        [title]="langService.t('meetingRoom.handRaised')"
+        aria-hidden="true"
+      ></i>
+      }
       <span class="roster__name">
         {{ participant.name }}
         @if (participant.userId === roomService.myUserId()) {
@@ -81,6 +88,18 @@
         {{ langService.t(roleLabel(participant.role)) }}
       </span>
       <div class="table-actions">
+        @if (canLowerHand(participant)) {
+        <button
+          type="button"
+          class="table-button table-button--confirm"
+          [title]="langService.t('meetingRoom.lowerHand')"
+          [attr.aria-label]="langService.t('meetingRoom.lowerHand')"
+          [disabled]="roomService.actingUserId() !== null"
+          (click)="roomService.lowerHand(participant.userId)"
+        >
+          <i class="icon-18 hand"></i>
+        </button>
+        }
         @if (canMute(participant)) {
         <button
           type="button"

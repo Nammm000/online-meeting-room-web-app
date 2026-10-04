@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import tech.getarrays.meetingroom.dto.meeting.JoinRequest;
+import tech.getarrays.meetingroom.dto.meeting.HandRequest;
 import tech.getarrays.meetingroom.dto.meeting.LockRequest;
 import tech.getarrays.meetingroom.dto.meeting.MuteRequest;
 import tech.getarrays.meetingroom.dto.meeting.MyMeetingStatusDTO;
@@ -88,12 +89,26 @@ public class MeetingParticipantController {
         return MeetingRoomUtils.getResponseEntity("Speaking state updated", HttpStatus.OK);
     }
 
+    @PatchMapping("/participants/me/hand")
+    public ResponseEntity<String> selfHand(@PathVariable String joinCode, @RequestBody HandRequest request) {
+        participantService.selfHand(joinCode, Boolean.TRUE.equals(request.handRaised()));
+        return MeetingRoomUtils.getResponseEntity("Hand state updated", HttpStatus.OK);
+    }
+
     @PatchMapping("/participants/{userId}/mute")
     public ResponseEntity<String> muteParticipant(@PathVariable String joinCode,
                                                   @PathVariable Long userId,
                                                   @RequestBody MuteRequest request) {
         participantService.muteParticipant(joinCode, userId, Boolean.TRUE.equals(request.muted()));
         return MeetingRoomUtils.getResponseEntity("Participant mute state updated", HttpStatus.OK);
+    }
+
+    @PatchMapping("/participants/{userId}/hand")
+    public ResponseEntity<String> handParticipant(@PathVariable String joinCode,
+                                                  @PathVariable Long userId,
+                                                  @RequestBody HandRequest request) {
+        participantService.handParticipant(joinCode, userId, Boolean.TRUE.equals(request.handRaised()));
+        return MeetingRoomUtils.getResponseEntity("Participant hand state updated", HttpStatus.OK);
     }
 
     @DeleteMapping("/participants/{userId}")

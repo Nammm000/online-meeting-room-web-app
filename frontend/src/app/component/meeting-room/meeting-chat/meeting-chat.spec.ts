@@ -48,11 +48,13 @@ const participantRow = (userId: number, name: string): Participant => ({
   status: 'JOINED',
   muted: false,
   speaking: false,
+  handRaised: false,
   joinCount: 1,
   firstJoinedAt: null,
   lastJoinedAt: null,
   lastLeftAt: null,
   lastSpeakingAt: null,
+  lastHandRaisedAt: null,
   admittedByName: null,
 });
 
@@ -84,11 +86,13 @@ const joinedStatus: MyMeetingStatus = {
     status: 'JOINED',
     muted: false,
     speaking: false,
+    handRaised: false,
     joinCount: 1,
     firstJoinedAt: null,
     lastJoinedAt: null,
     lastLeftAt: null,
     lastSpeakingAt: null,
+    lastHandRaisedAt: null,
     admittedByName: null,
   },
   media: {

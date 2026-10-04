@@ -31,6 +31,13 @@ export class MeetingRoster {
     return this.roomService.canModerate() && participant.role !== 'HOST';
   }
 
+  /** Moderator can lower a raised hand; shown only while the hand is up so rows stay clean. */
+  protected canLowerHand(participant: Participant): boolean {
+    return (
+      this.roomService.canModerate() && participant.handRaised && participant.role !== 'HOST'
+    );
+  }
+
   /** Host promotes/demotes co-hosts; the host row itself is immutable. */
   protected canChangeRole(participant: Participant): boolean {
     return this.roomService.isHost() && participant.role !== 'HOST';

@@ -80,12 +80,16 @@ export interface Participant {
   muted: boolean;
   /** Local-mic-analysis flag reported over REST; always false while muted. */
   speaking: boolean;
+  /** Toolbar-toggled flag; a moderator may lower it. Rides the roster poll. */
+  handRaised: boolean;
   joinCount: number;
   firstJoinedAt: string | null;
   lastJoinedAt: string | null;
   lastLeftAt: string | null;
   /** Stamped when speaking flipped false→true; orders simultaneous speakers on the stage. */
   lastSpeakingAt: string | null;
+  /** Stamped when the hand went up (false→true edge); preserves raise order. */
+  lastHandRaisedAt: string | null;
   admittedByName: string | null;
 }
 
@@ -139,6 +143,11 @@ export interface MuteRequestBody {
 /** SpeakingRequest body; the backend clamps to false while muted. */
 export interface SpeakingRequestBody {
   speaking: boolean;
+}
+
+/** HandRequest body; unlike speaking there is no mute clamp. */
+export interface HandRequestBody {
+  handRaised: boolean;
 }
 
 /** LockRequest body. */

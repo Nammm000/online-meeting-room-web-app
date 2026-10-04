@@ -85,6 +85,10 @@ export class MeetingRoom implements OnInit {
     this.roomService.setSelfMuted(!(this.roomService.me()?.muted ?? false));
   }
 
+  protected toggleHandRaised(): void {
+    this.roomService.setSelfHandRaised(!(this.roomService.me()?.handRaised ?? false));
+  }
+
   protected copyJoinCode(): void {
     const code = this.roomService.meeting()?.joinCode;
     if (code) {
