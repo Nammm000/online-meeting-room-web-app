@@ -2,6 +2,8 @@ package tech.getarrays.meetingroom.services.user;
 
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -17,6 +19,7 @@ import tech.getarrays.meetingroom.repo.MeetingChatMessageRepo;
 import tech.getarrays.meetingroom.repo.MeetingParticipantRepo;
 import tech.getarrays.meetingroom.repo.MeetingRepo;
 import tech.getarrays.meetingroom.repo.UserRepo;
+import tech.getarrays.meetingroom.constants.CacheConstants;
 import tech.getarrays.meetingroom.services.auth.refreshToken.RefreshTokenService;
 import tech.getarrays.meetingroom.services.image.UserImageService;
 import tech.getarrays.meetingroom.services.pdf.UserPdfFileService;
@@ -130,6 +133,14 @@ public class UserService {
      * MinIO objects (pdfs, avatar) are removed best-effort AFTER the user row has
      * flushed, so a late FK failure can never leave rows pointing at missing objects.
      */
+    // External writer for the PDF caches (docs/redis.md): without this evict, the
+    // deleted user's still-valid <=15-min access token could keep reading cached PDF
+    // bytes — the DB existence check lives inside the cached body and is skipped on a
+    // hit. @EnableCaching(order = 0) pins this evict AFTER the transaction commits.
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConstants.CACHE_USER_PDFS, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.CACHE_USER_PDF, allEntries = true)
+    })
     @Transactional
     public ResponseEntity<String> deleteUser(Long id) {
         Optional<User> optional = userRepo.findById(id);

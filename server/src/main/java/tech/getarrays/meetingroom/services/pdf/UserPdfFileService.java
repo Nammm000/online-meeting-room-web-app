@@ -4,9 +4,14 @@ import io.minio.GetObjectArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import lombok.AllArgsConstructor;
+import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -14,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import tech.getarrays.meetingroom.constants.CacheConstants;
 import tech.getarrays.meetingroom.dto.PagedResponseDTO;
 import tech.getarrays.meetingroom.dto.UserPdfFileDTO;
 import tech.getarrays.meetingroom.exception.NotFoundException;
@@ -51,6 +57,10 @@ public class UserPdfFileService {
         bucket = theBucket;
     }
 
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConstants.CACHE_USER_PDFS, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.CACHE_USER_PDF, allEntries = true)
+    })
     public ResponseEntity<List<UserPdfFileDTO>> uploadPdfFiles(List<MultipartFile> files) {
         validateFiles(files);
         User user = UserUtils.getCurrentUser();
@@ -82,14 +92,28 @@ public class UserPdfFileService {
         return new ResponseEntity<>(uploaded, HttpStatus.CREATED);
     }
 
-    public ResponseEntity<PagedResponseDTO<UserPdfFileDTO>> getMyPdfFiles(int page, int size) {
+    // Plain DTO, not ResponseEntity: ResponseEntity has no default creator and is not
+    // reliably Jackson-deserializable as a Redis cache value — the controller wraps it.
+    // Key is the JWT subject (email) from the request-scoped context: zero DB queries,
+    // and per-user keys mean one caller can never read another's cached page.
+    @Cacheable(cacheNames = CacheConstants.CACHE_USER_PDFS,
+            key = "@requestSecurityContext.username + ':' + #page + ':' + #size")
+    public PagedResponseDTO<UserPdfFileDTO> getMyPdfFiles(int page, int size) {
         User user = UserUtils.getCurrentUser();
         Page<UserPdfFileDTO> pdfFiles = userPdfFileRepo
                 .findByUserId(user.getId(), PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")))
                 .map(this::toDTO);
-        return new ResponseEntity<>(PagedResponseDTO.from(pdfFiles), HttpStatus.OK);
+        return PagedResponseDTO.from(pdfFiles);
     }
 
+    // Per-user key again: a cache hit skips findOwnedPdfFile/checkOwnership below, but an
+    // entry under <email>:<id> can only have been primed by that same authenticated user
+    // (or an admin, under the admin's own key) — no cross-user leak. 404/403 throw inside
+    // the body, so failed probes are never cached. The unless-guard skips payloads over
+    // 5MB (Base64 JSON would be ~2/3 larger in Redis) — those always re-fetch from MinIO.
+    @Cacheable(cacheNames = CacheConstants.CACHE_USER_PDF,
+            key = "@requestSecurityContext.username + ':' + #id",
+            unless = "#result != null && #result.data.length > 5 * 1024 * 1024")
     public PdfData getPdfFile(Long id) {
         UserPdfFile pdfFile = findOwnedPdfFile(id);
         byte[] data;
@@ -104,6 +128,12 @@ public class UserPdfFileService {
         return new PdfData(data, pdfFile.getFileName());
     }
 
+    // allEntries (not a targeted <owner>:<id> key): an admin may delete another user's
+    // file, and the owner's cache key isn't derivable from the deleter's request context.
+    @Caching(evict = {
+            @CacheEvict(cacheNames = CacheConstants.CACHE_USER_PDFS, allEntries = true),
+            @CacheEvict(cacheNames = CacheConstants.CACHE_USER_PDF, allEntries = true)
+    })
     public ResponseEntity<String> deletePdfFile(Long id) {
         UserPdfFile pdfFile = findOwnedPdfFile(id);
         // DB row first, then best-effort MinIO removal — an orphaned object is
@@ -131,7 +161,17 @@ public class UserPdfFileService {
         objectKeys.forEach(this::removeObject);
     }
 
-    public record PdfData(byte[] data, String fileName) {
+    /**
+     * A plain Lombok POJO, deliberately not a record: records are implicitly final, so
+     * the cache serializer's NON_FINAL default typing writes no {@code @class} hint and
+     * deserialization silently yields a LinkedHashMap. The no-arg ctor + typed
+     * {@code byte[]} field make it round-trip (Base64) through the Redis value.
+     */
+    @Data
+    @AllArgsConstructor
+    public static class PdfData {
+        private byte[] data;
+        private String fileName;
     }
 
     private UserPdfFile findOwnedPdfFile(Long id) {

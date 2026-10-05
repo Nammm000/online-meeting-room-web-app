@@ -14,10 +14,9 @@ alwaysApply: true
 
 None of these have consumers — don't build on them, and don't chase them when reading code:
 
-- `constants/AssetConstants` — cache-name constants + `STORE_LOCATION`; `INVALID_DATA` is referenced nowhere
+- `constants/AssetConstants` — cache-name constants (superseded by `CacheConstants`) + `STORE_LOCATION`; `INVALID_DATA` is referenced nowhere
 - `dto/BulkDeleteRequestDTO` — orphaned (its bulk-delete endpoints left with the asset domain)
 - `PagedResponseDTO.empty()` — helper for the removed bloom-filter path
-- `app.cache.bloom.*` properties in `application.properties` — dead config (`docs/redis.md` + `docs/redisson-bloom-filter.md` describe the sibling project's cache/bloom setup, not this one)
 - Guava dependency in `pom.xml`
 - `UserRepo.findFirstByAccountNumber` — leftover hook for the removed deposit flow
 - Test sources sit in `src/test/java/tech/getarrays/assetmanager/` but declare `package tech.getarrays.meetingroom` — compiles fine, but the layout is misleading
@@ -30,7 +29,8 @@ Found while verifying the docs; deliberately not fixed yet:
 2. **Disabled users can still log in** — `UserDetailsServiceImpl` never maps `User.status` to Spring's `enabled` flag, so the login 404 "User is not activated" branch is unreachable.
 3. **Forgot-password emails the bcrypt password hash** (not a usable password); the 200 response strings differ slightly between existing/missing users; SMTP failure → 500.
 4. `MeetingRoomUtils.getResponseEntity` emits the misspelled JSON key `"messag"`.
-5. **Redis port mismatch** — `application.properties` points at `6379`, `docker-compose.yml` publishes `6378`. Nothing touches Redis anymore (the lone user-delete `@CacheEvict` was removed with the `UserService.deleteUser` FK-cleanup rewrite), so there is no user-visible failure today.
-6. **8 dead `permitAll` routes** in `WebSecurityConfiguration` (`/dashboard/details`, `/news/*` ×4, `/plan/*` ×3) with no controllers behind them.
-7. `constants/PaymentConstants.java` contains unused hardcoded payment-gateway sandbox credentials (dead code, but real-looking secrets in source).
-8. `AuthenticationController` breaks the thin-controller convention — login, forgot-password, and change-password hold try/catch + business logic.
+5. **8 dead `permitAll` routes** in `WebSecurityConfiguration` (`/dashboard/details`, `/news/*` ×4, `/plan/*` ×3) with no controllers behind them.
+6. `constants/PaymentConstants.java` contains unused hardcoded payment-gateway sandbox credentials (dead code, but real-looking secrets in source).
+7. `AuthenticationController` breaks the thin-controller convention — login, forgot-password, and change-password hold try/catch + business logic.
+
+(Resolved 2026-10-05: the former Redis port mismatch — properties at `6379` vs compose `6378` — was fixed to `6378` when the PDF read caches went live; see `docs/redis.md`.)

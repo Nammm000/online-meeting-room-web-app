@@ -15,7 +15,7 @@ mvn test -Dtest=SomeClassTest#methodName   # run a single test
 
 ## Runtime dependencies
 
-Postgres and MinIO are hard boot dependencies — `MinioConfiguration` bootstraps buckets at startup and the app fails to boot if MinIO (`localhost:9002`) is unreachable. Redis is a soft dependency today: the app is configured at `spring.data.redis.port=6379` while compose publishes `6378` (known mismatch — `project-overview.md`), and nothing is `@Cacheable` or `@CacheEvict` anymore.
+Postgres and MinIO are hard boot dependencies — `MinioConfiguration` bootstraps buckets at startup and the app fails to boot if MinIO (`localhost:9002`) is unreachable. Redis is a soft dependency backing the PDF read caches (`localhost:6378`, matching compose): with Redis down the app still boots and every request degrades to DB/MinIO with a WARN (~4 s per request from the 2 s Lettuce timeouts — see `docs/redis.md`).
 
 ## JDK requirement
 

@@ -40,7 +40,7 @@ public class UserPdfFileController {
     @GetMapping
     public ResponseEntity<PagedResponseDTO<UserPdfFileDTO>> getMyPdfFiles(@RequestParam(defaultValue = "0") int page,
                                                                           @RequestParam(defaultValue = "10") int size) {
-        return userPdfFileService.getMyPdfFiles(page, size);
+        return ResponseEntity.ok(userPdfFileService.getMyPdfFiles(page, size));
     }
 
     @GetMapping("/{id}")
@@ -49,12 +49,12 @@ public class UserPdfFileController {
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_PDF)
                 .cacheControl(CacheControl.noCache())
-                .contentLength(pdf.data().length)
+                .contentLength(pdf.getData().length)
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment()
-                        .filename(pdf.fileName(), StandardCharsets.UTF_8)
+                        .filename(pdf.getFileName(), StandardCharsets.UTF_8)
                         .build()
                         .toString())
-                .body(pdf.data());
+                .body(pdf.getData());
     }
 
     @DeleteMapping("/{id}")
