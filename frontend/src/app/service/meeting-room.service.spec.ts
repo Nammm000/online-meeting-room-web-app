@@ -7,6 +7,7 @@ import { AuthService } from 'service/auth.service';
 import { MeetingRoomService } from 'service/meeting-room.service';
 import { SpeechDetectionService } from 'service/speech-detection.service';
 import { MeetingMediaService } from 'service/meeting-media.service';
+import type { IncomingReaction } from 'service/meeting-media.service';
 import { StageAvatarService } from 'service/stage-avatar.service';
 import { ModalService } from 'service/modal.service';
 import type { JwtClaims } from 'util/jwt-util';
@@ -182,10 +183,12 @@ const makeMediaMock = () => ({
   localScreenTrack: signal<unknown | null>(null),
   remoteCameraTracks: signal<ReadonlyMap<number, unknown>>(new Map()),
   screenShareTrack: signal<{ userId: number; track: unknown } | null>(null),
+  reactionFeed: signal<IncomingReaction[]>([]),
   offerCredentials: vi.fn(),
   disconnect: vi.fn(),
   setCameraEnabled: vi.fn(() => Promise.resolve()),
   setScreenShareEnabled: vi.fn(() => Promise.resolve()),
+  publishReaction: vi.fn(),
   subscribeTo: vi.fn(),
   unsubscribeFrom: vi.fn(),
 });
@@ -868,5 +871,100 @@ describe('MeetingRoomService', () => {
     vi.advanceTimersByTime(1); // 5 s: roster tick + chat reconcile together
     flushRoster(); // asserts nothing — but afterEach.verify proves exactly one fired
     flushChat();
+  });
+
+  // ── emoji reactions ────────────────────────────────────────────────────
+
+  /** Joins the live room: /me JOINED + media, roster, one-shot chat. */
+  const joinLive = (roster: Participant[] = []) => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED', { userId: 1, name: 'Alice' }), media: MEDIA }));
+    flushRoster(roster);
+    flushChat();
+  };
+
+  it('sends a reaction optimistically and removes the float after its lifetime', () => {
+    joinLive([participantFixture('JOINED', { userId: 1, name: 'Alice' })]);
+
+    service.sendReaction('heart');
+    expect(mediaMock.publishReaction).toHaveBeenCalledWith('heart');
+    expect(service.reactions()).toHaveLength(1);
+    expect(service.reactions()[0]).toMatchObject({ userId: 1, name: 'Alice', reaction: 'heart' });
+
+    vi.advanceTimersByTime(3199);
+    expect(service.reactions()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(service.reactions()).toHaveLength(0);
+
+    // The jump also fired the 2 s /me and 2.5 s roster ticks — flush them or
+    // afterEach verify() fails and poisons every later spec file.
+    flushMe(statusFixture({ participant: participantFixture('JOINED', { userId: 1, name: 'Alice' }), media: MEDIA }));
+    flushRoster();
+  });
+
+  it('ignores reaction sends while not joined', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('WAITING') }));
+
+    service.sendReaction('like');
+    expect(mediaMock.publishReaction).not.toHaveBeenCalled();
+    expect(service.reactions()).toHaveLength(0);
+  });
+
+  it('floats remote feed events with the roster name, nameless on a roster miss', () => {
+    joinLive([participantFixture('JOINED', { userId: 2, name: 'Bob' })]);
+
+    mediaMock.reactionFeed.set([{ seq: 1, userId: 2, reaction: 'laugh' }]);
+    TestBed.flushEffects();
+    expect(service.reactions()).toHaveLength(1);
+    expect(service.reactions()[0]).toMatchObject({ userId: 2, name: 'Bob', reaction: 'laugh' });
+
+    mediaMock.reactionFeed.set([
+      { seq: 1, userId: 2, reaction: 'laugh' },
+      { seq: 2, userId: 99, reaction: 'cry' },
+    ]);
+    TestBed.flushEffects();
+    expect(service.reactions()).toHaveLength(2);
+    expect(service.reactions()[1]).toMatchObject({ userId: 99, name: '', reaction: 'cry' });
+  });
+
+  it('consumes a burst set in one signal write as separate floats', () => {
+    joinLive();
+    mediaMock.reactionFeed.set([
+      { seq: 1, userId: 2, reaction: 'heart' },
+      { seq: 2, userId: 2, reaction: 'laugh' },
+      { seq: 3, userId: 3, reaction: 'like' },
+    ]);
+    TestBed.flushEffects();
+    expect(service.reactions().map((r) => r.reaction)).toEqual(['heart', 'laugh', 'like']);
+
+    // The same trimmed feed re-set later appends nothing (high-water mark).
+    mediaMock.reactionFeed.set([{ seq: 2, userId: 2, reaction: 'laugh' }]);
+    TestBed.flushEffects();
+    expect(service.reactions()).toHaveLength(3);
+  });
+
+  it('caps the float stream at 30 entries', () => {
+    joinLive();
+    for (let i = 0; i < 35; i += 1) {
+      service.sendReaction('heart');
+    }
+    expect(service.reactions()).toHaveLength(30);
+    expect(service.reactions()[0]!.id).toBe(6); // ids 1–5 dropped, 6–35 kept
+  });
+
+  it('clears the stream on stop() and on a terminal /me flush', () => {
+    joinLive();
+    service.sendReaction('heart');
+    expect(service.reactions()).toHaveLength(1);
+
+    service.stop();
+    expect(service.reactions()).toHaveLength(0);
+
+    joinLive();
+    service.sendReaction('heart');
+    vi.advanceTimersByTime(2000);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), meetingStatus: 'ENDED' }));
+    expect(service.reactions()).toHaveLength(0);
   });
 });

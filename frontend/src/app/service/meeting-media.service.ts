@@ -41,6 +41,61 @@ export function shouldAutoSubscribe(
   return source === 'camera' && clicked.has(userId);
 }
 
+/** The four picker reactions — native emoji chars, no icon assets. */
+export const REACTIONS = [
+  { key: 'heart', char: '❤️' },
+  { key: 'laugh', char: '😂' },
+  { key: 'cry', char: '😭' },
+  { key: 'like', char: '👍' },
+] as const;
+
+export type ReactionKey = (typeof REACTIONS)[number]['key'];
+
+/** The wire shape over the LiveKit data channel — the type discriminator keeps
+ *  the channel open to future ephemeral events without a payload redesign. */
+export interface ReactionPayload {
+  type: 'reaction';
+  reaction: ReactionKey;
+}
+
+/** One feed event from a remote participant; seq is monotonic per service instance. */
+export interface IncomingReaction {
+  seq: number;
+  userId: number;
+  reaction: ReactionKey;
+}
+
+const REACTION_KEYS: ReadonlySet<string> = new Set(REACTIONS.map((r) => r.key));
+/** Feed cap — trimmed from the front; the seq high-water mark covers the loss. */
+const REACTION_FEED_CAP = 30;
+
+/** Pure codec halves — unit-testable without WebRTC (shouldAutoSubscribe precedent). */
+export function encodeReaction(reaction: ReactionKey): Uint8Array<ArrayBuffer> {
+  // The copy narrows ArrayBufferLike → ArrayBuffer (publishData's demand);
+  // TextEncoder's own product is typed too loosely for it.
+  const encoded = new TextEncoder().encode(JSON.stringify({ type: 'reaction', reaction }));
+  const bytes = new Uint8Array(encoded.byteLength);
+  bytes.set(encoded);
+  return bytes;
+}
+
+export function parseReaction(raw: Uint8Array): ReactionPayload | null {
+  // NotificationService frame-validation precedent: shape-check, never trust.
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(raw));
+    if (typeof parsed !== 'object' || parsed === null) {
+      return null;
+    }
+    const { type, reaction } = parsed as Record<string, unknown>;
+    if (type !== 'reaction' || typeof reaction !== 'string' || !REACTION_KEYS.has(reaction)) {
+      return null;
+    }
+    return { type, reaction: reaction as ReactionKey };
+  } catch {
+    return null;
+  }
+}
+
 @Injectable({ providedIn: 'root' })
 export class MeetingMediaService {
   private readonly platformId = inject(PLATFORM_ID);
@@ -57,6 +112,17 @@ export class MeetingMediaService {
   /** Subscribed remote camera tracks by userId — populated only on click. */
   readonly remoteCameraTracks = signal<ReadonlyMap<number, VideoTrack>>(new Map());
   readonly screenShareTrack = signal<{ userId: number; track: VideoTrack } | null>(null);
+
+  /**
+   * Remote reactions seen since connect — an append-only capped array, not a
+   * single-event signal: signals batch within one change-detection flush, so
+   * a burst of DataReceived events would collapse a scalar and keep only the
+   * last. Each entry carries a monotonic seq (never reset, even across
+   * meetings) so the room service diffs by high-water mark and survives the
+   * trimming below.
+   */
+  readonly reactionFeed = signal<IncomingReaction[]>([]);
+  private reactionSeq = 0;
 
   private room: Room | null = null;
   /** The dynamically imported module — cached so enum values (Track.Source) are reachable. */
@@ -101,6 +167,7 @@ export class MeetingMediaService {
     this.localScreenTrack.set(null);
     this.remoteCameraTracks.set(new Map());
     this.screenShareTrack.set(null);
+    this.reactionFeed.set([]);
     this.connectionState.set('idle');
   }
 
@@ -126,6 +193,21 @@ export class MeetingMediaService {
       return;
     }
     await room.localParticipant.setScreenShareEnabled(enabled);
+  }
+
+  /**
+   * Broadcasts a reaction on the data channel (lossy by omission — a dropped
+   * ephemeral publish is fine, and LiveKit recommends lossy for reactions).
+   * Silent no-op when not connected, same contract as the camera calls. The
+   * promise is swallowed on purpose: a session whose token predates the
+   * data grant heals on the next reconnect, never on an error path.
+   */
+  publishReaction(reaction: ReactionKey): void {
+    const room = this.room;
+    if (room === null) {
+      return;
+    }
+    void room.localParticipant.publishData(encodeReaction(reaction), { topic: 'reaction' }).catch(() => {});
   }
 
   /** Click-to-view: subscribes to that participant's camera from now on. */
@@ -213,6 +295,24 @@ export class MeetingMediaService {
       }
     });
 
+    // Reactions: payload + participant only — the JSON discriminator is the
+    // authoritative filter, so kind/topic are left unread. identity is the
+    // server-minted users.id (never client-chosen), trusted as the sender.
+    room.on(RoomEvent.DataReceived, (payload, participant) => {
+      const parsed = parseReaction(payload);
+      if (parsed === null || participant === undefined) {
+        return;
+      }
+      const userId = Number(participant.identity);
+      if (!Number.isFinite(userId)) {
+        return;
+      }
+      this.reactionSeq += 1;
+      this.reactionFeed.update((feed) =>
+        [...feed, { seq: this.reactionSeq, userId, reaction: parsed.reaction }].slice(-REACTION_FEED_CAP),
+      );
+    });
+
     // Local events carry (publication, participant) — the track hangs off the publication.
     room.on(RoomEvent.LocalTrackPublished, (publication) => {
       if (publication.source === Track.Source.Camera) {
@@ -243,6 +343,7 @@ export class MeetingMediaService {
         this.localScreenTrack.set(null);
         this.cameraPublishing.set(false);
         this.screenSharing.set(false);
+        this.reactionFeed.set([]);
       }
       if (this.armed) {
         this.connectionState.set('failed');

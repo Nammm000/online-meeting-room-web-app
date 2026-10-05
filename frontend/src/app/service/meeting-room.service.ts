@@ -19,7 +19,7 @@ import { ModalService } from 'service/modal.service';
 import { SpeechDetectionService } from 'service/speech-detection.service';
 import { MeetingMediaService } from 'service/meeting-media.service';
 import { StageAvatarService } from 'service/stage-avatar.service';
-import type { VideoTrack } from 'service/meeting-media.service';
+import type { ReactionKey, VideoTrack } from 'service/meeting-media.service';
 import type {
   ChatMessage,
   Meeting,
@@ -44,6 +44,14 @@ export type MeetingViewState =
   | 'removed'
   | 'ended'
   | 'cancelled';
+
+/** One emoji currently floating over the stage; name '' hides the chip. */
+export interface ReactionFloat {
+  id: number;
+  userId: number;
+  name: string;
+  reaction: ReactionKey;
+}
 
 /**
  * Signal store for one meeting room. The backend has no per-user push channel
@@ -77,6 +85,9 @@ export class MeetingRoomService {
   private static readonly CHAT_PAGE_SIZE = 30;
   /** Minimum gap between speaking PATCHes — keeps the rate budget intact. */
   private static readonly SPEAKING_SEND_MIN_MS = 1500;
+  /** Float lifetime — the 3 s CSS animation plus fade margin. */
+  private static readonly REACTION_LIFETIME_MS = 3200;
+  private static readonly REACTION_STREAM_CAP = 30;
 
   private readonly platformId = inject(PLATFORM_ID);
   private readonly authService = inject(AuthService);
@@ -129,6 +140,11 @@ export class MeetingRoomService {
   private readonly _actionError = signal('');
   readonly actionError = this._actionError.asReadonly();
 
+  /** The stage-wide emoji float stream (newest last, capped) — the one
+   *  real-time channel in the room (LiveKit data plane; everything else polls). */
+  private readonly _reactions = signal<ReactionFloat[]>([]);
+  readonly reactions = this._reactions.asReadonly();
+
   private joinCode: string | null = null;
   private meTimer: ReturnType<typeof setTimeout> | null = null;
   private rosterTimer: ReturnType<typeof setTimeout> | null = null;
@@ -143,6 +159,10 @@ export class MeetingRoomService {
   /** Index of the oldest chat page held locally (page 0 = newest window). */
   private chatOldestPage = 0;
   private chatLoaded = false;
+  /** Reaction stream bookkeeping — both seqs are monotonic, never reset. */
+  private reactionId = 0;
+  private consumedReactionSeq = 0;
+  private readonly reactionTimers = new Set<ReturnType<typeof setTimeout>>();
 
   // ── derived ────────────────────────────────────────────────────────────
   readonly meeting = computed<Meeting | null>(() => this._status()?.meeting ?? null);
@@ -332,6 +352,22 @@ export class MeetingRoomService {
         this.stageAvatars.ensureLoaded(ids);
       }
     });
+
+    // Remote reactions ride the facade's capped feed; the seq high-water mark
+    // survives trimming and signal batching (a burst appends every entry seen).
+    effect(() => {
+      const feed = this.mediaFacade.reactionFeed();
+      if (!this._active()) {
+        return;
+      }
+      for (const event of feed) {
+        if (event.seq <= this.consumedReactionSeq) {
+          continue;
+        }
+        this.consumedReactionSeq = event.seq;
+        this.appendReaction(event.userId, event.reaction);
+      }
+    });
   }
 
   // ── lifecycle ──────────────────────────────────────────────────────────
@@ -354,6 +390,7 @@ export class MeetingRoomService {
     this._lobby.set([]);
     this._chatMessages.set([]);
     this._chatHasMore.set(false);
+    this._reactions.set([]);
     this._actionError.set('');
     this._actingUserId.set(null);
     this._loading.set(true);
@@ -363,13 +400,15 @@ export class MeetingRoomService {
     }
   }
 
-  /** Room unmounted: clears timers and in-flight guards. Data stays for the view. */
+  /** Room unmounted: clears timers and in-flight guards. Data stays for the view —
+   *  reactions excepted: they are decoration tied to the live session, not data. */
   stop(): void {
     this.clearTimers();
     this.joinCode = null;
     this._active.set(false);
     this._actingUserId.set(null);
     this.shareStartInFlight = false;
+    this._reactions.set([]);
     this.mediaFacade.disconnect();
     this.stageAvatars.clearAll();
   }
@@ -535,6 +574,20 @@ export class MeetingRoomService {
   }
 
   /**
+   * Sends an emoji reaction. Pure media-plane: optimistic local float (LiveKit
+   * never echoes own publishes back to the sender) plus a lossy data-channel
+   * broadcast — no REST, no rate budget, nothing persisted.
+   */
+  sendReaction(reaction: ReactionKey): void {
+    const myId = this.myUserId();
+    if (myId === null || this.viewState() !== 'joined') {
+      return;
+    }
+    this.appendReaction(myId, reaction);
+    this.mediaFacade.publishReaction(reaction);
+  }
+
+  /**
    * Toolbar camera toggle. Session state is the facade's `cameraPublishing`;
    * the persisted `videoEnabled` is only the entitlement ceiling, so turning
    * off is a pure local unpublish (no PATCH — re-enable stays allowed), while
@@ -634,6 +687,27 @@ export class MeetingRoomService {
     } else {
       this.mediaFacade.subscribeTo(participant.userId);
     }
+  }
+
+  /**
+   * Stages one float: name resolved from the roster at float time (screenShareView
+   * lookup pattern); a sender neither in the roster nor self floats nameless —
+   * the template hides the chip, covering a reaction that outlives its sender.
+   */
+  private appendReaction(userId: number, reaction: ReactionKey): void {
+    this.reactionId += 1;
+    const id = this.reactionId;
+    const name =
+      this._roster().find((participant) => participant.userId === userId)?.name ??
+      (userId === this.myUserId() ? (this.me()?.name ?? '') : '');
+    this._reactions.update((list) =>
+      [...list, { id, userId, name, reaction }].slice(-MeetingRoomService.REACTION_STREAM_CAP),
+    );
+    const timer = setTimeout(() => {
+      this.reactionTimers.delete(timer);
+      this._reactions.update((list) => list.filter((entry) => entry.id !== id));
+    }, MeetingRoomService.REACTION_LIFETIME_MS);
+    this.reactionTimers.add(timer);
   }
 
   /**
@@ -1069,6 +1143,7 @@ export class MeetingRoomService {
       participantStatus === 'DENIED';
     if (terminal) {
       this.clearTimers();
+      this._reactions.set([]); // floats belong to the live session only
       return true;
     }
 
@@ -1169,11 +1244,19 @@ export class MeetingRoomService {
     }
   }
 
+  private clearReactionTimers(): void {
+    for (const timer of this.reactionTimers) {
+      clearTimeout(timer);
+    }
+    this.reactionTimers.clear();
+  }
+
   private clearTimers(): void {
     this.clearMeTimer();
     this.clearRosterTimer();
     this.clearSecondaryTimer();
     this.clearSpeakingFlushTimer();
+    this.clearReactionTimers();
     this.rosterArmed = false;
     this.secondaryArmed = false;
   }

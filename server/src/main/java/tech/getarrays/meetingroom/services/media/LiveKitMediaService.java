@@ -27,12 +27,15 @@ import java.util.List;
  * it bounds the reconnect window of a removed participant whose revocation
  * call failed.
  *
- * Video-only publishing is enforced server-side by the source allowlist
- * (camera / screen_share per entitlement; microphone always excluded — the
- * SDK has no separate canPublishAudio grant, CanPublishSources supersedes
- * it). Token grants bind at connect time only; live-session permission
- * changes go through {@link #applyPublishEntitlements} (updateParticipant),
- * and the DB-derived grants on every re-mint self-heal reconnects.
+ * Video-only track publishing is enforced server-side by the source
+ * allowlist (camera / screen_share per entitlement; microphone always
+ * excluded — the SDK has no separate canPublishAudio grant,
+ * CanPublishSources supersedes it). Data-channel publishing is granted to
+ * every participant for the ephemeral emoji reactions only (chat stays
+ * DB-owned). Token grants bind at connect time only; live-session
+ * permission changes go through {@link #applyPublishEntitlements}
+ * (updateParticipant), and the DB-derived grants on every re-mint
+ * self-heal reconnects.
  */
 @Slf4j
 @Service
@@ -103,7 +106,8 @@ public class LiveKitMediaService {
             ParticipantPermission permission = ParticipantPermission.newBuilder()
                     .setCanSubscribe(true)
                     .setCanPublish(!sources.isEmpty())
-                    .setCanPublishData(false)
+                    // Data stays on — reactions keep flowing across entitlement pushes.
+                    .setCanPublishData(true)
                     .addAllCanPublishSources(sources)
                     .build();
             roomServiceClient.updateParticipant(joinCode, String.valueOf(userId), null, null, permission).execute();
@@ -115,10 +119,11 @@ public class LiveKitMediaService {
     }
 
     /**
-     * Short-TTL video-only access token; identity = users.id (what
+     * Short-TTL access token; identity = users.id (what
      * removeParticipant targets). Publish sources are per-entitlement: an
      * empty allowlist would mean ALL sources in LiveKit, so the fully
      * restricted participant gets a hard {@code canPublish=false} instead.
+     * Data-channel publishing (emoji reactions) is granted unconditionally.
      */
     public String mintToken(Long userId, String displayName, String joinCode,
                             boolean cameraAllowed, boolean screenShareAllowed) {
@@ -139,14 +144,14 @@ public class LiveKitMediaService {
                     new RoomName(joinCode),
                     new CanSubscribe(true),
                     new CanPublish(false),
-                    new CanPublishData(false));
+                    new CanPublishData(true));
         } else {
             token.addGrants(
                     new RoomJoin(true),
                     new RoomName(joinCode),
                     new CanSubscribe(true),
                     new CanPublishSources(List.copyOf(sources)),
-                    new CanPublishData(false));
+                    new CanPublishData(true));
         }
         return token.toJwt();
     }

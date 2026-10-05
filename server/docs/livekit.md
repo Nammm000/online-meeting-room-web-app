@@ -117,7 +117,7 @@ Admission to a LiveKit room is **token-only**: Spring mints a short-TTL JWT (HMA
 | `canSubscribe` | `true` | viewing is unrestricted (subscription itself is on-demand, §5) |
 | `canPublishSources` | `["camera"]`, `["screen_share"]`, or both — **derived from the DB on every mint** (`video_enabled`, share-slot ownership) | the allowlist is what keeps the microphone out: `mic`/`microphone` is never in the list |
 | — fully restricted participant | **hard `canPublish: false`** | an *empty* `canPublishSources` would mean **ALL sources** in LiveKit — the trap `mintToken` sidesteps |
-| `canPublishData` | `false` | no data channels by design — REST (`/meetings/**`) is the only cross-client channel |
+| `canPublishData` | `true` | data channel carries **only** the ephemeral emoji reactions (lossy, client-side `topic: 'reaction'`); everything durable stays on REST (`/meetings/**`) |
 
 Two consequences worth internalizing:
 
@@ -143,7 +143,7 @@ Two consequences worth internalizing:
 | `ensureRoom(joinCode)` | `createRoom(joinCode, emptyTimeout=900s)` — idempotent, LiveKit returns the existing room | `MeetingService.create` (INSTANT) and `start`; lazily on every `MediaTokenService.mintFor` — the self-heal |
 | `deleteRoom(joinCode)` | `deleteRoom` | `MeetingService.end` — after the rule-4 tx (ENDED + bulk JOINED→LEFT), before the Janus `destroyRoom` |
 | `removeParticipant(joinCode, userId)` | `removeParticipant(joinCode, identity, revokeTokenTs = now)` — disconnects **and revokes every token issued before now** | `MeetingParticipantService.removeParticipant` (after the DB tx, alongside the Janus `kick`) |
-| `applyPublishEntitlements(joinCode, userId, camera, share)` | `updateParticipant` with `ParticipantPermission` (`canSubscribe` true, `canPublish` iff any source, `canPublishData` false, sources per flags) | self camera toggle, host camera-off, screen-share claim/release/stop |
+| `applyPublishEntitlements(joinCode, userId, camera, share)` | `updateParticipant` with `ParticipantPermission` (`canSubscribe` true, `canPublish` iff any source, `canPublishData` true — reactions survive entitlement pushes, sources per flags) | self camera toggle, host camera-off, screen-share claim/release/stop |
 | `mintToken(…)` | `AccessToken` → JWT (§3) | `MediaTokenService.mintFor` |
 
 **Ordering nuances** (the DB-first rule has two deliberate inversions on this plane, both because a live *session* must be told before the record changes):
@@ -200,4 +200,4 @@ lk room list --url ws://localhost:7880 --api-key devkey \
 | Removed participant reconnects | revocation (`revokeTokenTs`) should prevent it; the 5-min token TTL bounds the window if that call failed |
 | `updateParticipant` WARNs | target participant offline — the DB flag still committed, the next token carries it (§4.2) |
 
-Two do-not-use rules inherited from the architecture decision (`docs/meeting-media-architecture.md` §4.1): LiveKit's built-in **chat and data channels are never used** (`canPublishData: false` — the app owns chat in `meeting_chat_messages`), and LiveKit participant metadata is **not the roster** — `meeting_participants` is the truth, LiveKit participants are a projection.
+Two rules inherited from the architecture decision (`docs/meeting-media-architecture.md` §4.1): LiveKit's built-in **chat is never used** (the app owns chat in `meeting_chat_messages`; the data channel carries only the ephemeral emoji reactions — nothing durable ever rides it), and LiveKit participant metadata is **not the roster** — `meeting_participants` is the truth, LiveKit participants are a projection.

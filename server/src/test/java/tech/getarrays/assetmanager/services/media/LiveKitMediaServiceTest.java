@@ -53,7 +53,7 @@ class LiveKitMediaServiceTest {
         assertThat(video.get("roomJoin")).isEqualTo(true);
         assertThat(video.get("room")).isEqualTo("ABCD234567");
         assertThat(video.get("canSubscribe")).isEqualTo(true);
-        assertThat(video.get("canPublishData")).isEqualTo(false);
+        assertThat(video.get("canPublishData")).isEqualTo(true);
         assertThat((List<String>) video.get("canPublishSources"))
                 .containsExactlyInAnyOrder("camera", "screen_share")
                 .doesNotContain("microphone");
@@ -109,7 +109,7 @@ class LiveKitMediaServiceTest {
         livekit.LivekitModels.ParticipantPermission permission = captor.getValue();
         assertThat(permission.getCanSubscribe()).isTrue();
         assertThat(permission.getCanPublish()).isTrue();
-        assertThat(permission.getCanPublishData()).isFalse();
+        assertThat(permission.getCanPublishData()).isTrue();
         assertThat(permission.getCanPublishSourcesList())
                 .containsExactly(livekit.LivekitModels.TrackSource.CAMERA);
     }

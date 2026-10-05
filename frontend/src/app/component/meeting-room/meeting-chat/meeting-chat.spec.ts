@@ -6,6 +6,7 @@ import { environment } from '../../../../environments/environment';
 import { MeetingChat } from './meeting-chat';
 import { MeetingRoomService } from 'service/meeting-room.service';
 import { MeetingMediaService } from 'service/meeting-media.service';
+import type { IncomingReaction } from 'service/meeting-media.service';
 import { StageAvatarService } from 'service/stage-avatar.service';
 import { AuthService } from 'service/auth.service';
 import { ModalService } from 'service/modal.service';
@@ -143,10 +144,12 @@ describe('MeetingChat', () => {
     localScreenTrack: signal<unknown | null>(null),
     remoteCameraTracks: signal<ReadonlyMap<number, unknown>>(new Map()),
     screenShareTrack: signal<unknown | null>(null),
+    reactionFeed: signal<IncomingReaction[]>([]),
     offerCredentials: vi.fn(),
     disconnect: vi.fn(),
     setCameraEnabled: vi.fn(),
     setScreenShareEnabled: vi.fn(),
+    publishReaction: vi.fn(),
     subscribeTo: vi.fn(),
     unsubscribeFrom: vi.fn(),
   };

@@ -152,6 +152,17 @@
     <div class="room-layout" [class.room-layout--chat-only]="roomService.viewState() !== 'joined'">
       @if (roomService.viewState() === 'joined') {
       <div class="room-stage">
+        <div class="stage-reactions" aria-hidden="true">
+          @for (reaction of roomService.reactions(); track reaction.id) {
+          <span class="stage-reactions__float" [style.left]="reactionLaneLeft(reaction.id)">
+            <span class="stage-reactions__emoji">{{ reactionChar(reaction.reaction) }}</span>
+            @if (reaction.name !== '') {
+            <span class="stage-reactions__name">{{ reaction.name }}</span>
+            }
+          </span>
+          }
+        </div>
+
         @if (roomService.screenShareView(); as share) {
         <div class="stage-share">
           <div class="stage-share__bar">
@@ -258,6 +269,34 @@
             <i class="icon-18 hand" aria-hidden="true"></i>
             {{ langService.t(roomService.me()?.handRaised ? 'meetingRoom.lowerHand' : 'meetingRoom.raiseHand') }}
           </button>
+          <div class="stage-controls__reaction">
+            <button
+              type="button"
+              class="stage-controls__button"
+              [class.stage-controls__button--active]="reactionPickerOpen()"
+              [attr.aria-expanded]="reactionPickerOpen()"
+              [attr.aria-haspopup]="true"
+              (click)="toggleReactionPicker()"
+            >
+              <span class="stage-controls__emoji" aria-hidden="true">😀</span>
+              {{ langService.t('meetingRoom.reactions') }}
+            </button>
+            @if (reactionPickerOpen()) {
+            <div class="reaction-picker" role="menu" [attr.aria-label]="langService.t('meetingRoom.reactions')">
+              @for (option of reactionOptions; track option.key) {
+              <button
+                type="button"
+                class="reaction-picker__option"
+                role="menuitem"
+                [attr.aria-label]="langService.t(reactionLabels[option.key])"
+                (click)="sendReaction(option.key)"
+              >
+                {{ option.char }}
+              </button>
+              }
+            </div>
+            }
+          </div>
           <button
             type="button"
             class="stage-controls__button"

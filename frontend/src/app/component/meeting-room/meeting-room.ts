@@ -1,4 +1,4 @@
-import { Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { Component, DestroyRef, ElementRef, HostListener, OnInit, effect, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { ActivatedRoute } from '@angular/router';
 import { MeetingRoomService } from 'service/meeting-room.service';
@@ -10,7 +10,9 @@ import { MeetingChat } from 'component/meeting-room/meeting-chat/meeting-chat';
 import { VideoTrackDirective } from 'directive/video-track';
 import { meetingStatusLabel as statusLabel } from 'util/meeting-labels';
 import { participantRoleLabel as roleLabel } from 'util/meeting-labels';
-import type { VideoTrack } from 'service/meeting-media.service';
+import { REACTIONS } from 'service/meeting-media.service';
+import type { ReactionKey, VideoTrack } from 'service/meeting-media.service';
+import type { TranslationKey } from 'i18n/translations';
 import type { Participant } from 'model/meeting.model';
 
 /**
@@ -29,9 +31,13 @@ import type { Participant } from 'model/meeting.model';
   styleUrl: './meeting-room.scss',
 })
 export class MeetingRoom implements OnInit {
+  /** Horizontal float lanes — deterministic stagger by stream position. */
+  private static readonly REACTION_LANES = ['10%', '30%', '50%', '70%', '90%'] as const;
+
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly elementRef = inject(ElementRef);
 
   protected readonly roomService = inject(MeetingRoomService);
   private readonly modalService = inject(ModalService);
@@ -47,8 +53,24 @@ export class MeetingRoom implements OnInit {
   /** Connection-info disclosure (media credentials) — collapsed by default. */
   protected readonly showConnectionInfo = signal(false);
 
+  /** Emoji picker popover — closed by selection, outside click, Escape, leaving. */
+  protected readonly reactionPickerOpen = signal(false);
+  protected readonly reactionOptions = REACTIONS;
+  protected readonly reactionLabels: Record<ReactionKey, TranslationKey> = {
+    heart: 'meetingRoom.reactHeart',
+    laugh: 'meetingRoom.reactLaugh',
+    cry: 'meetingRoom.reactCry',
+    like: 'meetingRoom.reactLike',
+  };
+
   constructor() {
     this.destroyRef.onDestroy(() => this.roomService.stop());
+    // Leaving the live room (leave/end/remove) closes the picker with it.
+    effect(() => {
+      if (this.roomService.viewState() !== 'joined') {
+        this.reactionPickerOpen.set(false);
+      }
+    });
   }
 
   ngOnInit(): void {
@@ -97,6 +119,38 @@ export class MeetingRoom implements OnInit {
 
   protected toggleHandRaised(): void {
     this.roomService.setSelfHandRaised(!(this.roomService.me()?.handRaised ?? false));
+  }
+
+  protected toggleReactionPicker(): void {
+    this.reactionPickerOpen.update((open) => !open);
+  }
+
+  protected sendReaction(reaction: ReactionKey): void {
+    this.reactionPickerOpen.set(false);
+    this.roomService.sendReaction(reaction);
+  }
+
+  /** The emoji char a float renders for a reaction key. */
+  protected reactionChar(reaction: ReactionKey): string {
+    return REACTIONS.find((option) => option.key === reaction)?.char ?? '';
+  }
+
+  /** Deterministic lane per float — spreads bursts without inline randomness. */
+  protected reactionLaneLeft(id: number): string {
+    return MeetingRoom.REACTION_LANES[id % MeetingRoom.REACTION_LANES.length]!;
+  }
+
+  /** Header-dropdown recipe: anything outside the component closes the picker. */
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: Event): void {
+    if (!this.elementRef.nativeElement.contains(event.target)) {
+      this.reactionPickerOpen.set(false);
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    this.reactionPickerOpen.set(false);
   }
 
   protected toggleSelfVideo(): void {
