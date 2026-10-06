@@ -6,6 +6,7 @@ import { environment } from '../../environments/environment';
 import { AuthService } from 'service/auth.service';
 import { MeetingRoomService } from 'service/meeting-room.service';
 import { SpeechDetectionService } from 'service/speech-detection.service';
+import { MediaDevicesService } from 'service/media-devices.service';
 import { MeetingMediaService } from 'service/meeting-media.service';
 import type { IncomingReaction } from 'service/meeting-media.service';
 import { StageAvatarService } from 'service/stage-avatar.service';
@@ -356,6 +357,39 @@ describe('MeetingRoomService', () => {
     expect(flushMe(statusFixture({ participant: participantFixture('WAITING') }))).toBe(1);
   });
 
+  it('seeds self-mute from a pre-join mic-off choice once the join lands', () => {
+    TestBed.inject(MediaDevicesService).micEnabled.set(false); // the preJoin toggle
+    service.start(CODE);
+    flushMe(statusFixture({ participant: null })); // preJoin
+
+    service.join();
+    httpMock
+      .expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/join`)
+      .flush(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    const req = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/mute`,
+    );
+    expect(req.request.body).toEqual({ muted: true });
+    req.flush({ messag: 'Mute state updated' });
+    flushRoster(); // restartLoops fired these alongside the join
+    flushChat();
+
+    expect(service.me()?.muted).toBe(true);
+  });
+
+  it('skips the mic seed when the join lands outside the room', () => {
+    TestBed.inject(MediaDevicesService).micEnabled.set(false);
+    service.start(CODE);
+    flushMe(statusFixture({ participant: null }));
+
+    service.join();
+    httpMock
+      .expectOne((r) => r.method === 'POST' && r.url === `${BASE_URL}/join`)
+      .flush(statusFixture({ participant: participantFixture('WAITING') })); // admit pending
+
+    expect(pending('PATCH', '/participants/me/mute')).toHaveLength(0);
+  });
+
   it('leave() stops polling and runs the caller back', () => {
     let navigated = false;
     service.start(CODE);
@@ -381,7 +415,8 @@ describe('MeetingRoomService', () => {
       participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
       media: MEDIA,
     });
-    flushMe(hostStatus);
+    flushMe(hostStatus); // the host lands gated in preJoin
+    service.join(); // open the local gate — no POST /join
     flushRoster();
     flushChat();
     expect(service.canModerate()).toBe(true);
@@ -402,6 +437,103 @@ describe('MeetingRoomService', () => {
     expect(service.actingUserId()).toBeNull();
     expect(service.roster()).toHaveLength(1);
     expect(service.lobby()).toHaveLength(1);
+  });
+
+  it('gates the auto-seated host in preJoin — no loops and no media until Join now', () => {
+    service.start(CODE);
+    const hostStatus = statusFixture({
+      participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
+      media: MEDIA,
+    });
+    flushMe(hostStatus);
+
+    expect(service.viewState()).toBe('preJoin'); // gated, not joined
+    expect(pending('GET', '/roster')).toHaveLength(0); // the joined loops never armed
+    expect(pending('GET', '/chat')).toHaveLength(0);
+    expect(mediaMock.offerCredentials).not.toHaveBeenCalled(); // LiveKit held
+
+    // /me polling stays alive through the gate — and re-landing doesn't open it.
+    vi.advanceTimersByTime(2000);
+    expect(flushMe(hostStatus)).toBe(1);
+    expect(service.viewState()).toBe('preJoin');
+  });
+
+  it("the gated host's Join now is local: no POST, loops arm, mic seed lands", () => {
+    TestBed.inject(MediaDevicesService).setMicEnabled(false); // mic-off at the door
+    service.start(CODE);
+    const hostStatus = statusFixture({
+      participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
+      media: MEDIA,
+    });
+    flushMe(hostStatus);
+
+    service.join();
+    expect(pending('POST', '/join')).toHaveLength(0); // nothing touched the network
+    expect(service.viewState()).toBe('joined');
+
+    flushRoster(); // armed by the gate-open, not by a later /me tick
+    flushChat();
+    const mute = httpMock.expectOne(
+      (r) => r.method === 'PATCH' && r.url === `${BASE_URL}/participants/me/mute`,
+    );
+    expect(mute.request.body).toEqual({ muted: true });
+    mute.flush({ messag: 'Mute state updated' });
+    expect(service.me()?.muted).toBe(true);
+
+    vi.advanceTimersByTime(5000); // the secondary chain runs on its own now
+    flushMe(hostStatus);
+    flushMe(hostStatus);
+    flushRoster();
+    pending('GET', '/lobby')[0]!.flush([participantFixture('WAITING')]);
+    flushChat();
+    expect(service.lobby()).toHaveLength(1);
+  });
+
+  it('re-gates the host on every room entry (start() resets the gate)', () => {
+    service.start(CODE);
+    const hostStatus = statusFixture({
+      participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
+      media: MEDIA,
+    });
+    flushMe(hostStatus);
+    service.join(); // opens the gate
+    flushRoster();
+    flushChat();
+    expect(service.viewState()).toBe('joined');
+
+    service.stop();
+    service.start(CODE); // re-entering the room URL
+    flushMe(hostStatus);
+    expect(service.viewState()).toBe('preJoin'); // gated again
+  });
+
+  it('an ended meeting never gates — the host sees the ended view', () => {
+    service.start(CODE);
+    flushMe(
+      statusFixture({
+        participant: participantFixture('JOINED', { userId: 1, name: 'Alice', role: 'HOST' }),
+        media: MEDIA,
+        meetingStatus: 'ENDED',
+      }),
+    );
+    expect(service.viewState()).toBe('ended');
+  });
+
+  it('re-entering a second room re-arms the roster/secondary chains', () => {
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    flushRoster();
+    flushChat();
+
+    service.stop();
+    service.start(CODE);
+    flushMe(statusFixture({ participant: participantFixture('JOINED'), media: MEDIA }));
+    // Before the start() reset this stayed armed from room one and the second
+    // room's stage stayed empty until a row action — the reset fixes it.
+    expect(pending('GET', '/roster')).toHaveLength(1);
+    flushRoster();
+    expect(pending('GET', '/chat')).toHaveLength(1);
+    flushChat();
   });
 
   it('self-mute flips the local participant immediately', () => {

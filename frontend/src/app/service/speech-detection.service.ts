@@ -5,6 +5,7 @@ import {
   inject,
   signal,
 } from '@angular/core';
+import { MediaDevicesService } from 'service/media-devices.service';
 
 /** RMS at/above which sustained audio counts as speaking (time-domain, 0..1). */
 export const SPEAKING_ON_RMS = 0.045;
@@ -57,6 +58,7 @@ export class SpeechDetectionService {
   private static readonly TICK_MS = 100;
 
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly mediaDevices = inject(MediaDevicesService);
 
   private readonly _speaking = signal(false);
   /** The local user is (per mic energy) currently speaking. */
@@ -83,8 +85,9 @@ export class SpeechDetectionService {
       return;
     }
     this.starting = true;
+    const micDeviceId = this.mediaDevices.micDeviceId(); // the pre-join pick, if any
     navigator.mediaDevices
-      .getUserMedia({ audio: true })
+      .getUserMedia({ audio: micDeviceId !== null ? { deviceId: { ideal: micDeviceId } } : true })
       .then((stream) => this.onStream(stream))
       .catch(() => {
         this.unavailable = true;

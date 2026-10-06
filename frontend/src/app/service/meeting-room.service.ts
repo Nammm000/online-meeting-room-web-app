@@ -17,6 +17,7 @@ import { getApiErrorMessage } from 'util/api-util';
 import { GlobalMessages } from 'component/shared/global-constants';
 import { ModalService } from 'service/modal.service';
 import { SpeechDetectionService } from 'service/speech-detection.service';
+import { MediaDevicesService } from 'service/media-devices.service';
 import { MeetingMediaService } from 'service/meeting-media.service';
 import { StageAvatarService } from 'service/stage-avatar.service';
 import type { ReactionKey, VideoTrack } from 'service/meeting-media.service';
@@ -96,6 +97,7 @@ export class MeetingRoomService {
   private readonly chatService = inject(MeetingChatService);
   private readonly modalService = inject(ModalService);
   private readonly speech = inject(SpeechDetectionService);
+  private readonly mediaDevices = inject(MediaDevicesService);
 
   /** The LiveKit facade — public read-only so the template binds its signals directly. */
   readonly mediaFacade = inject(MeetingMediaService);
@@ -125,6 +127,15 @@ export class MeetingRoomService {
   readonly active = this._active.asReadonly();
 
   private readonly _notFound = signal(false);
+
+  /**
+   * The auto-seated host's pre-join gate. Create/start seats the host JOINED
+   * server-side; until they press "Join now" the room renders preJoin (a local
+   * decision — no server call opens it) so LiveKit, mic analysis and the
+   * roster/chat loops stay held. Re-applied on every room entry (start()
+   * resets it): create/start navigation and a mid-meeting refresh alike.
+   */
+  private readonly hostGateOpen = signal(false);
 
   /** Row-level busy flag (admit/deny/mute/remove/role) — one action at a time. */
   private readonly _actingUserId = signal<number | null>(null);
@@ -198,6 +209,9 @@ export class MeetingRoomService {
     }
     if (participant.status === 'REMOVED' || participant.status === 'DENIED') {
       return 'removed';
+    }
+    if (participant.status === 'JOINED' && participant.role === 'HOST' && !this.hostGateOpen()) {
+      return 'preJoin';
     }
     return 'joined';
   });
@@ -384,6 +398,9 @@ export class MeetingRoomService {
     this.chatLoaded = false;
     this.lastSentSpeaking = false;
     this.lastSpeakingSentAt = 0;
+    this.hostGateOpen.set(false);
+    this.rosterArmed = false;
+    this.secondaryArmed = false;
     this._notFound.set(false);
     this._status.set(null);
     this._roster.set([]);
@@ -438,6 +455,16 @@ export class MeetingRoomService {
     if (code === null || this.joining()) {
       return;
     }
+    // The gated host is already JOINED server-side — "Join now" is local only.
+    // Uniqueness: a plain preJoin participant is null/LEFT/DECLINED, never
+    // JOINED, so this branch can only be the host gate. Must precede the
+    // password prompt and joining.set: nothing here touches the network.
+    if (this.viewState() === 'preJoin' && this.me()?.status === 'JOINED') {
+      this.hostGateOpen.set(true); // viewState flips to 'joined' synchronously
+      this.applyPreJoinMicChoice();
+      this.armJoinedLoops();
+      return;
+    }
     if (password === undefined && this.meeting()?.hasPassword && this.me()?.role !== 'HOST') {
       this.modalService.openJoinPassword({
         meetingTitle: this.meeting()?.title,
@@ -457,6 +484,7 @@ export class MeetingRoomService {
           if (!halted) {
             this.restartLoops();
           }
+          this.applyPreJoinMicChoice();
         },
         error: (error) => {
           this.joining.set(false);
@@ -471,6 +499,22 @@ export class MeetingRoomService {
           this._actionError.set(getApiErrorMessage(error, GlobalMessages.genericError));
         },
       });
+  }
+
+  /**
+   * The pre-join mic choice seeds the room: muted-at-the-door mutes the
+   * freshly joined participant in one PATCH. Waiting-room admits are skipped —
+   * the join response lands in `waiting` and the choice would need transition
+   * tracking to survive the admit (the toggle is still visible in-room).
+   */
+  private applyPreJoinMicChoice(): void {
+    if (this.mediaDevices.micEnabled() || this.viewState() !== 'joined') {
+      return;
+    }
+    if (this.me()?.muted ?? false) {
+      return; // already server-muted — nothing to seed
+    }
+    this.setSelfMuted(true);
   }
 
   leave(onDone: () => void): void {
@@ -1126,6 +1170,25 @@ export class MeetingRoomService {
   }
 
   /**
+   * The joined-only loops: immediate first roster, the lobby/chat secondary
+   * chain, and the one-shot chat history load. Called whenever a snapshot
+   * lands while joined (applyStatus) and when the host gate opens (join's
+   * local branch — the gate's first /me landed while still preJoin, so the
+   * arming never ran). One-shot flags make double calls no-ops.
+   */
+  private armJoinedLoops(): void {
+    if (!this.rosterArmed && this.viewState() === 'joined') {
+      this.rosterArmed = true;
+      this.fetchRoster(); // immediate first roster — the stage needs it right after join
+    }
+    if (!this.secondaryArmed && this.viewState() === 'joined') {
+      this.secondaryArmed = true;
+      this.scheduleSecondary(MeetingRoomService.SECONDARY_POLL_MS);
+    }
+    this.ensureChatLoaded();
+  }
+
+  /**
    * Installs a fresh /me snapshot. Returns true when the loops must halt
    * (terminal meeting/participant state — nothing changes server-side until
    * the user acts, and join() restarts them).
@@ -1147,15 +1210,7 @@ export class MeetingRoomService {
       return true;
     }
 
-    if (!this.rosterArmed && this.viewState() === 'joined') {
-      this.rosterArmed = true;
-      this.fetchRoster(); // immediate first roster — the stage needs it right after join
-    }
-    if (!this.secondaryArmed && this.viewState() === 'joined') {
-      this.secondaryArmed = true;
-      this.scheduleSecondary(MeetingRoomService.SECONDARY_POLL_MS);
-    }
-    this.ensureChatLoaded();
+    this.armJoinedLoops();
     return false;
   }
 

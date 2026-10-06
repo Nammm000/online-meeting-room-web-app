@@ -255,3 +255,11 @@
     center / contain no-repeat;
 }
 
+// Feather "volume-2" — speaker device row / audio output.
+.volume-2 {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23000'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolygon%20points='11%205%206%209%202%209%202%2015%206%2015%2011%2019%2011%205'%3E%3C/polygon%3E%3Cpath%20d='M19.07%204.93a10%2010%200%200%201%200%2014.14M15.54%208.46a5%205%200%200%201%200%207.07'%3E%3C/path%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2024%2024'%20fill='none'%20stroke='%23000'%20stroke-width='2'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Cpolygon%20points='11%205%206%209%202%209%202%2015%206%2015%2011%2019%2011%205'%3E%3C/polygon%3E%3Cpath%20d='M19.07%204.93a10%2010%200%200%201%200%2014.14M15.54%208.46a5%205%200%200%201%200%207.07'%3E%3C/path%3E%3C/svg%3E")
+    center / contain no-repeat;
+}
+

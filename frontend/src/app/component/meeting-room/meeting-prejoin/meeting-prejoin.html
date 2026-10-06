@@ -1,0 +1,162 @@
+<section class="prejoin">
+  <div class="prejoin__grid">
+    <!-- LEFT — camera preview (gesture-first) with the device toggles beneath. -->
+    <div class="prejoin__preview">
+      <div class="prejoin__video-frame">
+        <video
+          #previewVideo
+          class="prejoin__video"
+          [class.prejoin__video--hidden]="devices.previewStream() === null"
+          autoplay
+          playsinline
+          muted
+        ></video>
+        @if (devices.previewStream() === null) {
+        <span class="prejoin__avatar" aria-hidden="true">{{ initials(userName()) }}</span>
+        @if (devices.cameraBlocked()) {
+        <p class="prejoin__blocked">{{ langService.t('meetingRoom.preJoinCameraBlocked') }}</p>
+        }
+        }
+      </div>
+      <div class="prejoin__toggles">
+        <button
+          type="button"
+          class="prejoin__toggle"
+          [class.prejoin__toggle--off]="!devices.micEnabled()"
+          [attr.aria-label]="langService.t(devices.micEnabled() ? 'meetingRoom.mute' : 'meetingRoom.unmute')"
+          [attr.aria-pressed]="!devices.micEnabled()"
+          (click)="toggleMic()"
+        >
+          <i class="icon-18 {{ devices.micEnabled() ? 'mic' : 'mic-off' }}" aria-hidden="true"></i>
+        </button>
+        <button
+          type="button"
+          class="prejoin__toggle"
+          [class.prejoin__toggle--off]="!devices.cameraEnabled()"
+          [attr.aria-label]="langService.t(devices.cameraEnabled() ? 'meetingRoom.turnCameraOff' : 'meetingRoom.turnCameraOn')"
+          [attr.aria-pressed]="!devices.cameraEnabled()"
+          (click)="toggleCamera()"
+        >
+          <i class="icon-18 {{ devices.cameraEnabled() ? 'video' : 'video-off' }}" aria-hidden="true"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- RIGHT — room facts, joining identity, device pickers, the join action. -->
+    <div class="prejoin__panel">
+      <h1 class="prejoin__title">{{ roomService.meeting()?.title }}</h1>
+      <p class="prejoin__meta">
+        <span class="badge badge--{{ roomService.meeting()!.status.toLowerCase() }}">
+          {{ langService.t(statusLabel(roomService.meeting()!.status)) }}
+        </span>
+        @if (roomService.meeting()?.locked) {
+        <span class="badge badge--locked">
+          <i class="icon-18 lock" aria-hidden="true"></i>
+          {{ langService.t('meetingRoom.locked') }}
+        </span>
+        }
+        @if (roomService.meeting()?.hasPassword) {
+        <span class="badge badge--locked">
+          <i class="icon-18 lock" aria-hidden="true"></i>
+          {{ langService.t('meetingRoom.passwordProtected') }}
+        </span>
+        }
+      </p>
+      <p class="prejoin__code">
+        <span class="prejoin__code-value">{{ roomService.meeting()?.joinCode }}</span>
+        <button
+          type="button"
+          class="table-button"
+          [title]="langService.t('meetings.copyCode')"
+          [attr.aria-label]="langService.t('meetings.copyCode')"
+          (click)="copyJoinCode()"
+        >
+          <i class="icon-18 copy"></i>
+        </button>
+      </p>
+      <p class="prejoin__hint">{{ langService.t('meetingRoom.preJoinHint') }}</p>
+
+      <div class="prejoin__user">
+        <span class="prejoin__user-avatar" aria-hidden="true">{{ initials(userName()) }}</span>
+        <div>
+          <p class="prejoin__user-caption">{{ langService.t('meetingRoom.preJoinJoiningAs') }}</p>
+          <p class="prejoin__user-name">{{ userName() }}</p>
+        </div>
+      </div>
+
+      <label class="prejoin__field">
+        <i class="icon-18 mic" aria-hidden="true"></i>
+        <select
+          class="prejoin__select"
+          [disabled]="!listable(devices.micPermission())"
+          [attr.aria-label]="langService.t('meetingRoom.preJoinMic')"
+          (change)="onMicChange($event)"
+        >
+          @if (listable(devices.micPermission())) {
+          @for (device of devices.mics(); track device.deviceId; let i = $index) {
+          <option [value]="device.deviceId" [selected]="device.deviceId === devices.micDeviceId()">
+            {{ deviceLabel(device, 'meetingRoom.preJoinMic', i) }}
+          </option>
+          } @empty {
+          <option value="">{{ langService.t('meetingRoom.preJoinNoDevice') }}</option>
+          }
+          } @else {
+          <option value="">{{ langService.t('meetingRoom.preJoinNoPermission') }}</option>
+          }
+        </select>
+      </label>
+
+      <label class="prejoin__field">
+        <i class="icon-18 video" aria-hidden="true"></i>
+        <select
+          class="prejoin__select"
+          [disabled]="!listable(devices.cameraPermission())"
+          [attr.aria-label]="langService.t('meetingRoom.preJoinCamera')"
+          (change)="onCameraChange($event)"
+        >
+          @if (listable(devices.cameraPermission())) {
+          @for (device of devices.cameras(); track device.deviceId; let i = $index) {
+          <option [value]="device.deviceId" [selected]="device.deviceId === devices.cameraDeviceId()">
+            {{ deviceLabel(device, 'meetingRoom.preJoinCamera', i) }}
+          </option>
+          } @empty {
+          <option value="">{{ langService.t('meetingRoom.preJoinNoDevice') }}</option>
+          }
+          } @else {
+          <option value="">{{ langService.t('meetingRoom.preJoinNoPermission') }}</option>
+          }
+        </select>
+      </label>
+
+      <label class="prejoin__field">
+        <i class="icon-18 volume-2" aria-hidden="true"></i>
+        <select
+          class="prejoin__select"
+          [attr.aria-label]="langService.t('meetingRoom.preJoinSpeaker')"
+          (change)="onSpeakerChange($event)"
+        >
+          @for (device of devices.speakers(); track device.deviceId; let i = $index) {
+          <option [value]="device.deviceId" [selected]="device.deviceId === devices.speakerDeviceId()">
+            {{ deviceLabel(device, 'meetingRoom.preJoinSpeaker', i) }}
+          </option>
+          } @empty {
+          <option value="">{{ langService.t('meetingRoom.preJoinNoDevice') }}</option>
+          }
+        </select>
+      </label>
+
+      @if (roomService.actionError()) {
+      <p class="error-banner">{{ roomService.actionError() }}</p>
+      }
+
+      <button
+        type="button"
+        class="submit-button prejoin__join"
+        [disabled]="roomService.joining()"
+        (click)="join()"
+      >
+        {{ langService.t(isRejoin() ? 'meetingRoom.rejoin' : 'meetingRoom.joinNow') }}
+      </button>
+    </div>
+  </div>
+</section>

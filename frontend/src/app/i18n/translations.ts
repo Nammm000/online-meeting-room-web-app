@@ -200,6 +200,14 @@ const en = {
   "meetingRoom.mediaRoomId": "Janus room",
   "meetingRoom.mediaPin": "PIN",
   "meetingRoom.mediaToken": "LiveKit token (5 min TTL)",
+  "meetingRoom.joinNow": "Join now",
+  "meetingRoom.preJoinMic": "Microphone",
+  "meetingRoom.preJoinCamera": "Camera",
+  "meetingRoom.preJoinSpeaker": "Speakers",
+  "meetingRoom.preJoinJoiningAs": "Joining as",
+  "meetingRoom.preJoinCameraBlocked": "Camera unavailable — check your browser settings.",
+  "meetingRoom.preJoinNoDevice": "No device found",
+  "meetingRoom.preJoinNoPermission": "No permission",
 } as const;
 
 const vi: { [K in keyof typeof en]: string } = {
@@ -395,6 +403,14 @@ const vi: { [K in keyof typeof en]: string } = {
   "meetingRoom.mediaRoomId": "Phòng Janus",
   "meetingRoom.mediaPin": "Mã PIN",
   "meetingRoom.mediaToken": "LiveKit token (hiệu lực 5 phút)",
+  "meetingRoom.joinNow": "Tham gia ngay",
+  "meetingRoom.preJoinMic": "Micro",
+  "meetingRoom.preJoinCamera": "Camera",
+  "meetingRoom.preJoinSpeaker": "Loa",
+  "meetingRoom.preJoinJoiningAs": "Tham gia với tư cách",
+  "meetingRoom.preJoinCameraBlocked": "Không truy cập được camera — hãy kiểm tra cài đặt trình duyệt.",
+  "meetingRoom.preJoinNoDevice": "Không tìm thấy thiết bị",
+  "meetingRoom.preJoinNoPermission": "Chưa cấp quyền",
 };
 
 export const translations = { en, vi } as const;

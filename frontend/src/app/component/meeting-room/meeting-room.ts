@@ -7,6 +7,7 @@ import { LanguageService } from 'service/language.service';
 import { StageAvatarService } from 'service/stage-avatar.service';
 import { MeetingRoster } from 'component/meeting-room/meeting-roster/meeting-roster';
 import { MeetingChat } from 'component/meeting-room/meeting-chat/meeting-chat';
+import { MeetingPrejoin } from 'component/meeting-room/meeting-prejoin/meeting-prejoin';
 import { VideoTrackDirective } from 'directive/video-track';
 import { meetingStatusLabel as statusLabel } from 'util/meeting-labels';
 import { participantRoleLabel as roleLabel } from 'util/meeting-labels';
@@ -19,14 +20,14 @@ import type { Participant } from 'model/meeting.model';
  * The in-meeting view at /meetings/:joinCode/room. Owns no polling itself —
  * MeetingRoomService is started on init (joinCode from the route param) and
  * stopped on destroy, and the template just switches on its viewState:
- * pre-join, waiting room, the live room, removed, ended/cancelled (chat
- * stays readable) and not-found. Hosts/co-hosts get moderation controls,
- * everyone gets the media stage (WebRTC is a later milestone — audio/video
- * tiles are placeholders driven by the roster) and the connection info.
+ * pre-join (delegated to MeetingPrejoin — camera preview, device pickers,
+ * join), waiting room, the live room, removed, ended/cancelled (chat stays
+ * readable) and not-found. Hosts/co-hosts get moderation controls, everyone
+ * gets the media stage and the connection info.
  */
 @Component({
   selector: 'app-meeting-room',
-  imports: [RouterLink, MeetingRoster, MeetingChat, VideoTrackDirective],
+  imports: [RouterLink, MeetingRoster, MeetingChat, MeetingPrejoin, VideoTrackDirective],
   templateUrl: './meeting-room.html',
   styleUrl: './meeting-room.scss',
 })
@@ -78,12 +79,6 @@ export class MeetingRoom implements OnInit {
     if (joinCode !== null && joinCode !== '') {
       this.roomService.start(joinCode.toUpperCase());
     }
-  }
-
-  /** Whether the pre-join button says "Rejoin" (previously LEFT/DECLINED). */
-  protected isRejoin(): boolean {
-    const status = this.roomService.me()?.status;
-    return status === 'LEFT' || status === 'DECLINED';
   }
 
   protected join(): void {

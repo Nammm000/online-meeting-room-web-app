@@ -13,6 +13,7 @@ import { AuthService } from 'service/auth.service';
 import type { JwtClaims } from 'util/jwt-util';
 import type { ChatMessage, MyMeetingStatus, Participant } from 'model/meeting.model';
 import type { PagedResponse } from 'model/paged-response.model';
+import type { UserWrapper } from 'model/user.model';
 
 function base64Url(input: string): string {
   const bytes = new TextEncoder().encode(input);
@@ -95,6 +96,17 @@ const emptyChatPage: PagedResponse<ChatMessage> = {
   totalPages: 0,
   first: true,
   last: true,
+};
+
+/** The preJoin child's identity load — /users/current-user. */
+const currentUser: UserWrapper = {
+  id: 2,
+  name: 'Bob Builder',
+  email: 'bob@test.com',
+  phone: '',
+  status: 'ACTIVE',
+  createdTime: '2026-01-01T00:00:00',
+  role: 'ROLE_USER',
 };
 
 describe('MeetingRoom', () => {
@@ -207,6 +219,61 @@ describe('MeetingRoom', () => {
     expect(button).not.toBeNull();
     expect(button!.getAttribute('aria-expanded')).toBe('false');
     expect(document.querySelector('.reaction-picker')).toBeNull();
+  });
+
+  it('renders the pre-join component when /me reports no participant row', () => {
+    vi.advanceTimersByTime(2000); // the /me poll fires
+    for (const request of pending('GET', '/me')) {
+      request.flush({ ...joinedStatus, participant: null, media: null }); // → preJoin
+    }
+    fixture.detectChanges(); // the child mounts and asks for the identity
+    httpMock
+      .expectOne(
+        (r) => r.method === 'GET' && r.url === `${environment.apiUrl}/users/current-user`,
+      )
+      .flush(currentUser);
+    fixture.detectChanges();
+
+    expect(document.querySelector('app-meeting-prejoin')).not.toBeNull();
+    expect(document.querySelector('.prejoin__join')).not.toBeNull();
+    expect(document.querySelector('.stage-controls')).toBeNull(); // live room gone
+  });
+
+  it('gates the auto-seated host in prejoin and enters locally on Join now', () => {
+    // Reset to a host /me snapshot: create/start seats the host JOINED, which
+    // the local gate must render as prejoin instead of the live room.
+    roomService.stop();
+    roomService.start(CODE);
+    const hostStatus = {
+      ...joinedStatus,
+      participant: { ...participantRow(1, 'Alice'), role: 'HOST' as const },
+    };
+    for (const request of pending('GET', '/me')) {
+      request.flush(hostStatus);
+    }
+    fixture.detectChanges(); // the prejoin child mounts and asks for the identity
+    httpMock
+      .expectOne(
+        (r) => r.method === 'GET' && r.url === `${environment.apiUrl}/users/current-user`,
+      )
+      .flush(currentUser);
+    fixture.detectChanges();
+
+    expect(document.querySelector('app-meeting-prejoin')).not.toBeNull();
+    expect(document.querySelector('.stage-controls')).toBeNull();
+
+    (document.querySelector('.prejoin__join') as HTMLButtonElement).click();
+    for (const request of pending('GET', '/roster')) {
+      request.flush([participantRow(1, 'Alice')]);
+    }
+    for (const request of pending('GET', '/chat')) {
+      request.flush(emptyChatPage);
+    }
+    fixture.detectChanges();
+
+    expect(pending('POST', '/join')).toHaveLength(0); // the gate is local only
+    expect(roomService.viewState()).toBe('joined');
+    expect(document.querySelector('.stage-controls')).not.toBeNull();
   });
 
   it('toggles the picker and renders the four emoji options', () => {

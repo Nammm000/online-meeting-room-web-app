@@ -16,38 +16,7 @@
   </div>
   }
   @case ('preJoin') {
-  <div class="room-state">
-    <h1 class="room-state__title">{{ roomService.meeting()?.title }}</h1>
-    <p class="room-state__meta">
-      <span class="badge badge--{{ roomService.meeting()!.status.toLowerCase() }}">
-        {{ langService.t(statusLabel(roomService.meeting()!.status)) }}
-      </span>
-      @if (roomService.meeting()?.locked) {
-      <span class="badge badge--locked">
-        <i class="icon-18 lock" aria-hidden="true"></i>
-        {{ langService.t('meetingRoom.locked') }}
-      </span>
-      }
-      @if (roomService.meeting()?.hasPassword) {
-      <span class="badge badge--locked">
-        <i class="icon-18 lock" aria-hidden="true"></i>
-        {{ langService.t('meetingRoom.passwordProtected') }}
-      </span>
-      }
-    </p>
-    <p class="room-state__hint">{{ langService.t('meetingRoom.preJoinHint') }}</p>
-    @if (roomService.actionError()) {
-    <p class="error-banner">{{ roomService.actionError() }}</p>
-    }
-    <button
-      type="button"
-      class="submit-button room-state__action"
-      [disabled]="roomService.joining()"
-      (click)="join()"
-    >
-      {{ langService.t(isRejoin() ? 'meetingRoom.rejoin' : 'meetingRoom.join') }}
-    </button>
-  </div>
+  <app-meeting-prejoin />
   }
   @case ('waiting') {
   <div class="room-state">
